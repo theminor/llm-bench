@@ -2,7 +2,13 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const api = async (path, opts = {}) => {
-  const r = await fetch(path, opts.headers ? { ...opts, headers: { "Content-Type": "application/json" } } : opts);
+  const init = { ...opts };
+  if (init.body != null) {
+    // fetch() defaults string bodies to text/plain, which FastAPI rejects;
+    // every POST here sends JSON.
+    init.headers = { "Content-Type": "application/json", ...(init.headers || {}) };
+  }
+  const r = await fetch(path, init);
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
     try {

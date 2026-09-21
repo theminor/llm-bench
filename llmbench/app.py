@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -27,6 +27,19 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
 
     app = FastAPI(title="llm-bench", version="0.1.0")
 
+    async def json_body(request: Request) -> dict:
+        """Content-type-agnostic JSON object body (tolerates text/plain etc.)."""
+        raw = await request.body()
+        if not raw:
+            raise HTTPException(400, "request body is required")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "request body must be valid JSON")
+        if not isinstance(data, dict):
+            raise HTTPException(400, "request body must be a JSON object")
+        return data
+
     @app.on_event("startup")
     def seed() -> None:
         if not db.list_engines():
@@ -46,7 +59,7 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
         return builtin_presets()
 
     @app.post("/api/engines")
-    def engines_upsert(eng: dict):
+    def engines_upsert(eng: dict = Depends(json_body)):
         try:
             profile = EngineProfile.from_dict(eng)
         except (KeyError, ValueError) as e:
@@ -69,7 +82,7 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
         return sweeps
 
     @app.post("/api/sweeps")
-    def sweep_create(spec: dict):
+    def sweep_create(spec: dict = Depends(json_body)):
         try:
             parsed = SweepSpec.from_dict(spec)
         except (KeyError, ValueError, TypeError) as e:
@@ -82,7 +95,7 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
         return {"id": sid}
 
     @app.post("/api/sweeps/plan")
-    def sweep_plan(spec: dict):
+    def sweep_plan(spec: dict = Depends(json_body)):
         try:
             parsed = SweepSpec.from_dict(spec)
             variants = plan_variants(parsed)
