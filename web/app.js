@@ -5,12 +5,18 @@ const api = async (path, opts = {}) => {
   const r = await fetch(path, opts.headers ? { ...opts, headers: { "Content-Type": "application/json" } } : opts);
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
-    try { msg = (await r.json()).detail || msg; } catch {}
+    try {
+      const body = await r.json();
+      let d = body.detail;
+      if (Array.isArray(d)) d = d.map(e => `${(e.loc || []).join(".")}: ${e.msg}`).join("; ");
+      else if (d && typeof d === "object") d = JSON.stringify(d);
+      if (d) msg = String(d);
+    } catch {}
     throw new Error(msg);
   }
   return r.status === 204 ? null : r.json();
 };
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (v, d = 1) => v == null ? "" : Number(v).toFixed(d);
 
 /* ---------- tabs ---------- */
@@ -90,16 +96,17 @@ $("#wl-add").onclick = () => addWl();
 $("#dim-add").onclick = () => addDim();
 
 function formSpec() {
-  const f = $("#sweep-form");
+  // NOTE: never read fields via form.<name> — "name" collides with the
+  // HTMLFormElement.name built-in. Always use explicit ids.
   return {
-    name: f.name.value.trim(),
-    engine: f.engine.value,
-    model: f.model.value.trim(),
-    base_args: f.base_args.value.trim(),
-    repetitions: +f.repetitions.value || 3,
-    warmup: f.warmup.checked,
-    cooldown_s: +f.cooldown_s.value,
-    startup_timeout_s: +f.startup_timeout_s.value || 300,
+    name: $("#sf-name").value.trim(),
+    engine: $("#sf-engine").value,
+    model: $("#sf-model").value.trim(),
+    base_args: $("#sf-base").value.trim(),
+    repetitions: +$("#sf-reps").value || 3,
+    warmup: $("#sf-warmup").checked,
+    cooldown_s: +$("#sf-cooldown").value || 0,
+    startup_timeout_s: +$("#sf-startup").value || 300,
     workloads: $$("#wl-table tbody tr").map(tr => ({
       kind: $(".wl-kind", tr).value,
       n_prompt: +$(".wl-pp", tr).value || 0,
@@ -129,7 +136,7 @@ $("#sweep-form").onsubmit = async ev => {
 };
 async function loadEngineSelect() {
   const engines = await api("/api/engines");
-  $("#sweep-engine").innerHTML = engines.map(e => `<option>${esc(e.name)}</option>`).join("");
+  $("#sf-engine").innerHTML = engines.map(e => `<option>${esc(e.name)}</option>`).join("");
 }
 
 /* ---------- results ---------- */
@@ -231,39 +238,68 @@ async function checkEngine(name) {
     if (r.version) $("#engine-check").textContent += ` — ${r.version.split("\n")[0]}`;
   } catch (e) { $("#engine-check").textContent = `⚠ ${e.message}`; }
 }
+function engineFormFill(e = {}) {
+  $("#ef-name").value = e.name || "";
+  $("#ef-executable").value = e.executable || "";
+  $("#ef-args").value = (e.args || ["--model", "{model}", "--host", "127.0.0.1", "--port", "{port}"]).join("\n");
+  $("#ef-ready").value = e.ready_path || "/health";
+  $("#ef-timeout").value = e.ready_timeout_s || 300;
+  $("#ef-timing").value = e.timing || "llamacpp";
+  $("#ef-modelreq").checked = e.model_required !== false;
+  $("#ef-env").value = e.env && Object.keys(e.env).length ? JSON.stringify(e.env, null, 1) : "";
+  $("#ef-headers").value = e.headers && Object.keys(e.headers).length ? JSON.stringify(e.headers, null, 1) : "";
+  $("#ef-note").value = e.note || "";
+}
 async function editEngine(name) {
   const e = (await api("/api/engines")).find(x => x.name === name);
-  const f = $("#engine-form");
-  f.name.value = e.name; f.executable.value = e.executable;
-  f.args.value = (e.args || []).join("\n");
-  f.ready_path.value = e.ready_path || "/health";
-  f.ready_timeout_s.value = e.ready_timeout_s || 300;
-  f.timing.value = e.timing || "llamacpp";
-  f.model_required.checked = e.model_required !== false;
-  f.env.value = JSON.stringify(e.env || {}, null, 1);
-  f.headers.value = JSON.stringify(e.headers || {}, null, 1);
-  f.note.value = e.note || "";
+  if (!e) return;
+  engineFormFill(e);
   editingEngine = name;
   $("#engine-form-title").textContent = `Edit engine: ${name}`;
   $("#engine-cancel").classList.remove("hidden");
-  f.scrollIntoView();
+  $("#engine-check").textContent = "";
+  $("#engine-form").scrollIntoView({ behavior: "smooth", block: "start" });
 }
-$("#engine-cancel").onclick = () => { editingEngine = null; $("#engine-form").reset(); $("#engine-form-title").textContent = "Add engine"; $("#engine-cancel").classList.add("hidden"); };
+$("#engine-cancel").onclick = () => {
+  editingEngine = null;
+  $("#engine-form").reset();
+  $("#engine-form-title").textContent = "Add engine";
+  $("#engine-cancel").classList.add("hidden");
+};
 $("#engine-form").onsubmit = async ev => {
   ev.preventDefault();
-  const f = ev.target;
-  const eng = {
-    name: f.name.value.trim(), executable: f.executable.value.trim(),
-    args: f.args.value.split("\n").map(s => s).filter(s => s.trim() !== ""),
-    ready_path: f.ready_path.value || "/health",
-    ready_timeout_s: +f.ready_timeout_s.value || 300,
-    timing: f.timing.value, model_required: f.model_required.checked,
-    env: JSON.parse(f.env.value || "{}"), headers: JSON.parse(f.headers.value || "{}"),
-    note: f.note.value,
-  };
+  let eng;
+  try {
+    eng = {
+      name: $("#ef-name").value.trim(),
+      executable: $("#ef-executable").value.trim(),
+      args: $("#ef-args").value.split("\n").map(s => s.trimEnd()).filter(s => s.trim() !== ""),
+      ready_path: $("#ef-ready").value.trim() || "/health",
+      ready_timeout_s: +$("#ef-timeout").value || 300,
+      timing: $("#ef-timing").value,
+      model_required: $("#ef-modelreq").checked,
+      env: JSON.parse($("#ef-env").value.trim() || "{}"),
+      headers: JSON.parse($("#ef-headers").value.trim() || "{}"),
+      note: $("#ef-note").value.trim(),
+    };
+    if (!eng.name) throw new Error("Name is required");
+    if (!eng.executable) throw new Error("Executable path is required");
+  } catch (e) {
+    alert(`Check the form: ${e.message}`);
+    return;
+  }
   try {
     await api("/api/engines", { method: "POST", body: JSON.stringify(eng) });
-    editingEngine = null; f.reset(); renderEngines();
+    if (editingEngine && editingEngine !== eng.name) {
+      // renamed: remove the old entry so the list doesn't keep a stale copy
+      await api(`/api/engines/${encodeURIComponent(editingEngine)}`, { method: "DELETE" }).catch(() => {});
+    }
+    editingEngine = null;
+    $("#engine-form").reset();
+    $("#engine-form-title").textContent = "Add engine";
+    $("#engine-cancel").classList.add("hidden");
+    renderEngines();
+    loadEngineSelect();
   } catch (e) { alert(e.message); }
 };
 async function deleteEngine(name) { if (confirm(`Delete engine ${name}?`)) { await api(`/api/engines/${encodeURIComponent(name)}`, { method: "DELETE" }); renderEngines(); } }
