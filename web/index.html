@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-bench</title>
+<link rel="stylesheet" href="style.css">
+<script src="vendor/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>llm-bench</h1>
+  <nav>
+    <button data-tab="sweeps" class="tab active">Sweeps</button>
+    <button data-tab="new" class="tab">New sweep</button>
+    <button data-tab="results" class="tab">Results</button>
+    <button data-tab="engines" class="tab">Engines</button>
+  </nav>
+</header>
+<main>
+
+<section id="tab-sweeps" class="tab-page">
+  <h2>Sweeps</h2>
+  <div id="sweep-detail"></div>
+  <div id="sweep-list"><em>Loading…</em></div>
+</section>
+
+<section id="tab-new" class="tab-page hidden">
+  <h2>New sweep</h2>
+  <form id="sweep-form" class="card">
+    <div class="grid2">
+      <label>Name <input name="name" value="untitled sweep" required></label>
+      <label>Engine <select name="engine" id="sweep-engine" required></select></label>
+      <label class="wide">Model path / name <input name="model" placeholder="/models/Qwen2.5-7B-Q4_K_M.gguf"></label>
+      <label class="wide">Base args (applied to every variant)
+        <input name="base_args" placeholder="--flash-attn on --no-mmap"></label>
+    </div>
+
+    <h3>Workloads</h3>
+    <table id="wl-table" class="rows">
+      <thead><tr><th>Kind</th><th>Prompt tokens</th><th>Gen tokens</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button type="button" id="wl-add" class="small">+ workload</button>
+
+    <h3>Dimensions <span class="hint">(values: <code>1,2,4-8+2</code> ranges, literals, or <code>a;b</code> for comma-containing fragments)</span></h3>
+    <table id="dim-table" class="rows">
+      <thead><tr><th>Name</th><th>Arg template (<code>{v}</code>)</th><th>Values</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button type="button" id="dim-add" class="small">+ dimension</button>
+
+    <div class="grid2">
+      <label>Repetitions <input name="repetitions" type="number" value="3" min="1"></label>
+      <label>Cooldown s <input name="cooldown_s" type="number" value="2" min="0" step="0.5"></label>
+      <label>Startup timeout s <input name="startup_timeout_s" type="number" value="300" min="5"></label>
+      <label class="checkbox"><input type="checkbox" name="warmup" checked> Warmup request</label>
+    </div>
+
+    <p id="plan-preview" class="hint"></p>
+    <div class="actions">
+      <button type="button" id="btn-plan" class="small">Preview plan</button>
+      <button type="submit">Create</button>
+    </div>
+  </form>
+</section>
+
+<section id="tab-results" class="tab-page hidden">
+  <h2>Results</h2>
+  <div id="result-pick" class="card"></div>
+  <div id="result-body"></div>
+</section>
+
+<section id="tab-engines" class="tab-page hidden">
+  <h2>Engines</h2>
+  <p class="hint">An engine is any executable exposing an OpenAI-compatible
+    <code>/v1/completions</code> endpoint. <code>{model}</code> and <code>{port}</code>
+    are substituted into the args.</p>
+  <div id="engine-list"></div>
+  <div class="card">
+    <h3 id="engine-form-title">Add engine</h3>
+    <form id="engine-form">
+      <div class="grid2">
+        <label>Name <input name="name" required></label>
+        <label>Executable <input name="executable" placeholder="/usr/local/bin/llama-server" required></label>
+      </div>
+      <label>Args (one per line; {model} {port})<textarea name="args" rows="4"
+        placeholder="--model {model}&#10;--host 127.0.0.1&#10;--port {port}"></textarea></label>
+      <div class="grid2">
+        <label>Ready path <input name="ready_path" value="/health"></label>
+        <label>Ready timeout s <input name="ready_timeout_s" type="number" value="300"></label>
+        <label>Server timing parser
+          <select name="timing"><option value="llamacpp">llama.cpp log timings</option><option value="none">none (client-side only)</option></select>
+        </label>
+        <label class="checkbox"><input type="checkbox" name="model_required" checked> Model required</label>
+      </div>
+      <label>Env vars (JSON) <textarea name="env" rows="2" placeholder='{"CUDA_VISIBLE_DEVICES": "0"}'></textarea></label>
+      <label>Request headers (JSON; may use {port} e.g. Authorization) <textarea name="headers" rows="2" placeholder='{"Authorization": "Bearer secret"}'></textarea></label>
+      <label>Note <input name="note"></label>
+      <p id="engine-check" class="hint"></p>
+      <div class="actions">
+        <button type="submit">Save engine</button>
+        <button type="button" id="engine-cancel" class="small hidden">Cancel edit</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+</main>
+<div id="log-modal" class="hidden">
+  <div class="modal-card">
+    <div class="modal-head"><span id="log-title"></span><button id="log-close" class="small">Close</button></div>
+    <pre id="log-body"></pre>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
