@@ -42,15 +42,16 @@ def parse_int_range(s: str) -> list[int]:
     return out
 
 
-def expand_values(values: str) -> list[str]:
+def expand_values(values: str, sep: str | None = None) -> list[str]:
     """Expand a values spec into concrete value strings.
 
-    If the spec contains ';' it is split on ';' only (so individual values
-    may contain commas, e.g. '--ts 1,2;--ts 3,4'); otherwise it is split on
-    commas. Each entry is either an integer range (expanded, llama-bench
-    style) or a literal string (kept verbatim).
+    Splitting: use ``sep`` if given; otherwise ';' if the spec contains one
+    (so individual values may contain commas, e.g. '--ts 1,2;--ts 3,4');
+    otherwise commas. Each entry is either an integer range (expanded,
+    llama-bench style) or a literal string (kept verbatim).
     """
-    sep = ";" if ";" in values else ","
+    if sep is None:
+        sep = ";" if ";" in values else ","
     entries = [e for e in values.split(sep) if e.strip() != ""]
     if not entries:
         raise ValueError("no values given")
@@ -64,27 +65,49 @@ def expand_values(values: str) -> list[str]:
     return out
 
 
+def parse_env_value(v: str) -> tuple[str, str]:
+    """Split ``KEY=value``; a bare ``KEY`` means value ``"1"``."""
+    if "=" in v:
+        k, val = v.split("=", 1)
+        return k.strip(), val.strip()
+    return v.strip(), "1"
+
+
 @dataclass
 class Dimension:
     """One swept parameter.
 
-    ``args`` is an argument template; ``{v}`` is replaced by each value.
-    Template modes:
+    ``type`` is ``"arg"`` (default) for command-line flags or ``"env"`` for
+    environment variables.
+
+    Arg dimensions: ``args`` is an argument template; ``{v}`` is replaced by
+    each value. Template modes:
       * empty or ``{v}`` -> smart: emits ``--<name> <value>``; a value that is
         already a flag (starts with ``--``) is emitted as-is, which is how you
         sweep whole flag groups (e.g. ``--a 1;--b 2``)
       * anything else containing ``{v}`` -> the value is substituted into the
         template (e.g. ``--n-gpu-layers {v}``)
+
+    Env dimensions: each value is a ``KEY=value`` pair (separate values with
+    ``;`` so values may contain commas, e.g. ``CUDA_VISIBLE_DEVICES=0,1;2``).
+    The ``args`` template is ignored.
     """
 
     name: str
     args: str = ""
     values: str = ""
+    type: str = "arg"  # "arg" | "env"
 
-    def expand(self) -> list[tuple[str, list[str]]]:
-        """Return list of (display_label, argv_fragments)."""
-        result: list[tuple[str, list[str]]] = []
-        for v in expand_values(self.values):
+    def expand(self) -> list[tuple[str, list[str], dict[str, str]]]:
+        """Return list of (display_label, argv_fragments, env_delta)."""
+        result: list[tuple[str, list[str], dict[str, str]]] = []
+        # Env values may contain commas, so always split on ';'.
+        vals = expand_values(self.values, sep=";") if self.type == "env" else expand_values(self.values)
+        for v in vals:
+            if self.type == "env":
+                key, val = parse_env_value(v)
+                result.append((f"{key}={val}", [], {key: val}))
+                continue
             if self.args.strip() in ("", "{v}"):
                 # Smart mode: the dimension name is the flag, unless the value
                 # is already a full flag fragment.
@@ -97,7 +120,7 @@ class Dimension:
                     "unless left empty (flag = dimension name)"
                 )
             argv = shlex.split(fragment) if fragment.strip() else []
-            result.append((f"{self.name}={v}", argv))
+            result.append((f"{self.name}={v}", argv, {}))
         return result
 
 
@@ -140,6 +163,7 @@ class SweepSpec:
     model: str = ""                 # single model (back-compat)
     models: list[str] = field(default_factory=list)  # swept: cross-product
     base_args: str = ""             # applied to every variant (shlex string)
+    base_env: dict[str, str] = field(default_factory=dict)  # env for every variant
     workloads: list[Workload] = field(default_factory=list)
     dimensions: list[Dimension] = field(default_factory=list)
     repetitions: int = 3
@@ -156,14 +180,26 @@ class SweepSpec:
         # `model` is the legacy single field; if `models` absent, fall back to it.
         if not models and single:
             models = [single]
+        dims = []
+        for dim in d.get("dimensions", []):
+            t = str(dim.get("type", "arg") or "arg")
+            if t not in ("arg", "env"):
+                t = "arg"
+            dims.append(Dimension(
+                name=str(dim.get("name", "")),
+                args=str(dim.get("args", "")),
+                values=str(dim.get("values", "")),
+                type=t,
+            ))
         return SweepSpec(
             name=str(d.get("name") or "sweep"),
             engine=str(d["engine"]),
             model=single or (models[0] if models else ""),
             models=models,
             base_args=str(d.get("base_args", "")),
+            base_env={str(k): str(v) for k, v in (d.get("base_env") or {}).items()},
             workloads=[Workload(**w) for w in d.get("workloads", [])],
-            dimensions=[Dimension(**dim) for dim in d.get("dimensions", [])],
+            dimensions=dims,
             repetitions=int(d.get("repetitions", 3)),
             warmup=bool(d.get("warmup", True)),
             cooldown_s=float(d.get("cooldown_s", 2.0)),
@@ -179,6 +215,7 @@ class Variant:
     args: list[str]
     label: str
     model: str = ""
+    env: dict[str, str] = field(default_factory=dict)  # per-variant env overrides
 
     @property
     def key(self) -> str:
@@ -218,11 +255,13 @@ def plan_variants(spec: SweepSpec) -> list[Variant]:
                 nm, val = c[0].split("=", 1)
                 labels[nm] = val
             args = list(base)
-            for _, argv in combo:
-                args.extend(argv)
+            env: dict[str, str] = {}
+            for c in combo:
+                args.extend(c[1])
+                env.update(c[2])
             label_parts = ([_model_label(model)] if model and multi_model else []) + [c[0] for c in combo]
             label = " ".join(label_parts) if label_parts else "(baseline)"
-            v = Variant(labels=labels, args=args, label=label, model=model)
+            v = Variant(labels=labels, args=args, label=label, model=model, env=env)
             if v.key in seen:
                 continue
             seen.add(v.key)

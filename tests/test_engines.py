@@ -1,7 +1,7 @@
 """Engine profile arg rendering (shell-split lines, placeholder substitution)."""
 import pytest
 
-from llmbench.core.engines import EngineProfile
+from llmbench.core.engines import EngineProfile, ServerProcess
 
 
 def profile(args):
@@ -38,3 +38,24 @@ class TestRenderArgs:
         p = profile(["--x 'unterminated"])
         with pytest.raises(ValueError):
             p.render_args("", 0)
+
+
+class TestServerProcessEnv:
+    def _server(self, profile_env, extra_env):
+        prof = EngineProfile(name="t", executable="exe", args=["--x"], env=profile_env)
+        return ServerProcess(prof, [], "", 0, "/tmp/x.log", extra_env=extra_env)
+
+    def test_engine_env_applied(self):
+        s = self._server({"A": "1"}, None)
+        assert s.merged_env["A"] == "1"
+
+    def test_sweep_extra_env_overrides_engine_env(self):
+        s = self._server({"A": "engine", "B": "keep"}, {"A": "sweep", "C": "sweep"})
+        assert s.merged_env["A"] == "sweep"
+        assert s.merged_env["B"] == "keep"
+        assert s.merged_env["C"] == "sweep"
+
+    def test_inherits_process_env(self):
+        s = self._server({}, {})
+        # PATH always exists in the process env
+        assert "PATH" in s.merged_env

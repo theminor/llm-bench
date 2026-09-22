@@ -101,7 +101,13 @@ def to_markdown(db: Database, sweep_ids: list[int], title: str = "") -> str:
             out.append(f"  comparing {len(model_list)} models: " + ", ".join(f"`{m}`" for m in model_list) + "  ")
         dims = spec.get("dimensions", [])
         if dims:
-            out.append(f"- **Dimensions:** " + ", ".join(f"`{d['name']}`" for d in dims) + "  ")
+            dim_str = ", ".join(
+                f"`{d['name']}`" + (" (env)" if d.get("type") == "env" else "") for d in dims
+            )
+            out.append(f"- **Dimensions:** {dim_str}  ")
+        base_env = spec.get("base_env") or {}
+        if base_env:
+            out.append(f"- **Base env:** " + ", ".join(f"`{k}={v}`" for k, v in base_env.items()) + "  ")
         wl_labels = []
         for w in spec.get("workloads", []):
             kind, np_, ng = w.get("kind"), int(w.get("n_prompt", 0)), int(w.get("n_gen", 0))

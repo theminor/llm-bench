@@ -55,6 +55,11 @@
         <textarea id="sf-base" rows="3" placeholder="--flash-attn on --no-mmap&#10;--threads 8"></textarea>
         <span class="hint">Flags common to all variants — the things you are <i>not</i> testing but want held
         constant. Each line is shell-parsed, so a line may hold several flags. Leave blank if none.</span></label>
+      <label class="wide">Base env vars (applied to every variant — one <code>KEY=value</code> per line)
+        <textarea id="sf-baseenv" rows="2" placeholder="CUDA_VISIBLE_DEVICES=0&#10;HSA_ENABLE_SDMA=0"></textarea>
+        <span class="hint">Environment variables held constant for every variant in this sweep — e.g. pin a
+        GPU, disable a feature. A bare <code>KEY</code> means value <code>1</code>. These override any
+        <i>default</i> env set on the engine. To <i>test</i> different env values, add an env dimension below.</span></label>
     </div>
 
     <h3>Workloads <span class="hint">— what request shape to measure</span></h3>
@@ -79,10 +84,11 @@
     <h3>Dimensions</h3>
     <p class="hint">The parameters you want to test. Each dimension is swept across all its values and
     the result is the cross-product (dimension A with 2 values × dimension B with 3 values = 6 variants).
-    For each value the fragment is appended to the engine command line verbatim, so <i>any</i> flag the
-    engine understands can be swept — including flags that don't exist yet.</p>
+    Dimensions can be <b>args</b> (command-line flags, appended to the engine command verbatim — so
+    <i>any</i> flag works, even ones that don't exist yet) or <b>env</b> (environment variables set for
+    the engine process).</p>
     <table id="dim-table" class="rows">
-      <thead><tr><th>Name</th><th>Arg template (optional; <code>{v}</code> = value)</th><th>Values</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Type</th><th>Arg template (args only; <code>{v}</code> = value)</th><th>Values</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button type="button" id="dim-add" class="small">+ dimension</button>
@@ -94,6 +100,10 @@
     (2) Put surrounding text with <code>{v}</code> for the value, e.g. <code>--n-gpu-layers {v}</code>.
     To switch between whole flag groups, make the <i>values</i> start with a flag — e.g. values
     <code>--flash-attn on --no-mmap;--flash-attn off</code> (separated by <code>;</code>).<br>
+    <b>Env values:</b> each is a <code>KEY=value</code> pair (a bare <code>KEY</code> means value
+    <code>1</code>), separated by <code>;</code> — e.g. name <code>cuda</code> with values
+    <code>CUDA_VISIBLE_DEVICES=0;CUDA_VISIBLE_DEVICES=1</code>. The arg template is ignored for env
+    dimensions.<br>
     <b>Values:</b> <code>1,2,4-8+2</code> (llama-bench ranges: first-last, +step, *multiplier),
     literals like <code>on,off,auto</code>, or fragments separated by <code>;</code> when a value
     itself contains commas (e.g. <code>--ts 1,2;--ts 3,4</code>).<br>
@@ -187,12 +197,15 @@
           <span class="hint">llama.cpp prints <code>prompt eval time</code> / <code>eval time</code> lines per
           request; selecting this reports engine-internal speed alongside the HTTP-measured numbers.
           Other engines: client-side measurement only.</span></label>
-        <label class="checkbox"><input id="ef-modelreq" type="checkbox" checked> Model required
-          <span class="hint">Refuse to run sweeps with an empty model field for this engine.</span></label>
+        <label class="checkbox"><input id="ef-modelreq" type="checkbox" checked> Takes a model
+          <span class="hint">Tick if this engine needs a model. The model itself is chosen per sweep
+          (New sweep → Models); the engine just needs to know it should expect the <code>{model}</code>
+          substitution in its args. Untick for model-less tools.</span></label>
       </div>
-      <label>Env vars (JSON)
+      <label>Default env vars (JSON)
         <textarea id="ef-env" rows="2" placeholder='{"CUDA_VISIBLE_DEVICES": "0"}'></textarea>
-        <span class="hint">Extra environment variables for the engine process — e.g. pick a specific GPU.</span></label>
+        <span class="hint">Environment variables this engine always runs with — e.g. pin a specific GPU.
+        Base env / env dimensions set on a sweep override these values.</span></label>
       <label>Request headers (JSON; may use {port})
         <textarea id="ef-headers" rows="2" placeholder='{"Authorization": "Bearer secret"}'></textarea>
         <span class="hint">Sent with every measurement request — e.g. <code>--api-key</code> protection via

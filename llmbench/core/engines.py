@@ -109,6 +109,7 @@ class ServerProcess:
         port: int,
         log_path: str,
         ready_timeout_s: float | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> None:
         self.profile = profile
         self.variant_args = variant_args
@@ -116,6 +117,9 @@ class ServerProcess:
         self.port = port
         self.log_path = log_path
         self.ready_timeout_s = ready_timeout_s or profile.ready_timeout_s
+        # Sweep-level env (base + per-variant dimension overrides). Applied on
+        # top of the engine's own env so sweeps can test/override variables.
+        self.extra_env = dict(extra_env or {})
         self.base_url = f"http://127.0.0.1:{port}"
         self.proc: asyncio.subprocess.Process | None = None
         self._drainer: asyncio.Task | None = None
@@ -129,12 +133,22 @@ class ServerProcess:
             self.model, self.port
         ) + self.variant_args
 
-    async def start(self) -> None:
+    @property
+    def merged_env(self) -> dict[str, str]:
+        """Full env the engine process runs with: process < engine < sweep."""
         env = dict(os.environ)
         env.update(self.profile.env)
+        env.update(self.extra_env)
+        return env
+
+    async def start(self) -> None:
+        env = self.merged_env
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._log = open(self.log_path, "w")
         self._log.write("$ " + " ".join(self.command) + "\n")
+        if self.extra_env:
+            shown = " ".join(f"{k}={v}" for k, v in self.extra_env.items())
+            self._log.write(f"env+ {shown}\n")
         self.proc = await asyncio.create_subprocess_exec(
             *self.command,
             stdout=asyncio.subprocess.PIPE,

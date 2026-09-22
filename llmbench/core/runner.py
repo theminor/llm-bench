@@ -118,9 +118,11 @@ class Runner:
         port = spec.port or _free_port()
         log_path = str(self.data_dir / "logs" / f"sweep{sweep_id}_variant{variant_id}.log")
         model = variant.model or "default"
+        # Sweep-level env: fixed base_env plus this variant's env-dimension overrides.
+        extra_env = {**(spec.base_env or {}), **(variant.env or {})}
         server = ServerProcess(
             profile, variant.args, variant.model, port, log_path,
-            ready_timeout_s=spec.startup_timeout_s,
+            ready_timeout_s=spec.startup_timeout_s, extra_env=extra_env,
         )
         self.db.update_variant(
             variant_id, status="starting", started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

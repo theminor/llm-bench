@@ -86,6 +86,7 @@ async function cloneSweep(id) {
     const models = (sp.models && sp.models.length ? sp.models : (sp.model ? [sp.model] : []));
     (models.length ? models : [""]).forEach(m => addModel(m));
     $("#sf-base").value = sp.base_args || "";
+    $("#sf-baseenv").value = Object.entries(sp.base_env || {}).map(([k, v]) => `${k}=${v}`).join("\n");
     // workloads
     $("#wl-table tbody").innerHTML = "";
     (sp.workloads && sp.workloads.length ? sp.workloads : [{ kind: "pg", n_prompt: 512, n_gen: 128 }])
@@ -93,7 +94,7 @@ async function cloneSweep(id) {
     // dimensions
     $("#dim-table tbody").innerHTML = "";
     (sp.dimensions && sp.dimensions.length ? sp.dimensions : [])
-      .forEach(d => addDim(d.name || "", d.args || "", d.values || ""));
+      .forEach(d => addDim(d.name || "", d.args || "", d.values || "", d.type || "arg"));
     $("#sf-reps").value = sp.repetitions ?? 3;
     $("#sf-warmup").checked = sp.warmup !== false;
     $("#sf-cooldown").value = sp.cooldown_s ?? 2;
@@ -128,13 +129,29 @@ function addModel(path = "") {
     <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
   $("#models-table tbody").appendChild(tr);
 }
-function addDim(name = "", args = "", values = "") {
+function addDim(name = "", args = "", values = "", type = "arg") {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td><input class="dim-name" value="${esc(name)}" placeholder="flash-attn"></td>
+    <td><select class="dim-type">
+      <option value="arg" ${type === "arg" ? "selected" : ""}>arg</option>
+      <option value="env" ${type === "env" ? "selected" : ""}>env</option>
+    </select></td>
     <td><input class="dim-args" value="${esc(args)}" placeholder="empty = --flash-attn value"></td>
-    <td><input class="dim-values" value="${esc(values)}" placeholder="on,off,auto"></td>
+    <td><input class="dim-values" value="${esc(values)}" placeholder="arg: on,off,auto · env: CUDA_VISIBLE_DEVICES=0;=1"></td>
     <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
   $("#dim-table tbody").appendChild(tr);
+}
+// Parse "KEY=value" lines (bare KEY -> "1") into an object.
+function parseEnvLines(text) {
+  const o = {};
+  for (const line of String(text || "").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    const i = t.indexOf("=");
+    if (i >= 0) o[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    else o[t] = "1";
+  }
+  return o;
 }
 $("#wl-add").onclick = () => addWl();
 $("#dim-add").onclick = () => addDim();
@@ -150,6 +167,7 @@ function formSpec() {
     model: models[0] || "",
     models: models,
     base_args: $("#sf-base").value.trim(),
+    base_env: parseEnvLines($("#sf-baseenv").value),
     repetitions: +$("#sf-reps").value || 3,
     warmup: $("#sf-warmup").checked,
     cooldown_s: +$("#sf-cooldown").value || 0,
@@ -161,6 +179,7 @@ function formSpec() {
     })),
     dimensions: $$("#dim-table tbody tr").map(tr => ({
       name: $(".dim-name", tr).value.trim(),
+      type: $(".dim-type", tr).value,
       args: $(".dim-args", tr).value,
       values: $(".dim-values", tr).value.trim(),
     })).filter(d => d.name && d.values),
@@ -173,6 +192,10 @@ $("#btn-plan").onclick = async () => {
       `Variants: ${esc(p.variants.slice(0, 8).join(" | "))}${p.variants.length > 8 ? " …" : ""}`;
     if (p.example_command) {
       html += `<br>Exact command for the first variant (port is auto-assigned at run time):<br><code class="cmd-preview">${esc(p.example_command)}</code>`;
+    }
+    if (p.example_env && Object.keys(p.example_env).length) {
+      const envStr = Object.entries(p.example_env).map(([k, v]) => `${k}=${v}`).join("  ");
+      html += `<br>Env for the first variant:<br><code class="cmd-preview">${esc(envStr)}</code>`;
     }
     $("#plan-preview").innerHTML = html;
   } catch (e) { $("#plan-preview").textContent = `⚠ ${e.message}`; }
@@ -205,9 +228,23 @@ async function renderResultPicker(preselect) {
 function selectSweep(id) { const cb = $(`#result-pick input[value="${id}"]`); if (cb) { cb.checked = true; cb.onchange(); } }
 
 const METRICS = [
-  ["pp_tps", "Prefill t/s"], ["tg_tps", "Decode t/s"], ["ttft_ms", "TTFT ms"],
-  ["e2e_ms", "End-to-end ms"], ["itl_p50_ms", "ITL p50 ms"], ["itl_p90_ms", "ITL p90 ms"], ["itl_p99_ms", "ITL p99 ms"],
+  // [key, header, dir]  dir: 1 = higher is better, -1 = lower is better
+  ["pp_tps", "Prefill t/s", 1], ["tg_tps", "Decode t/s", 1], ["ttft_ms", "TTFT ms", -1],
+  ["e2e_ms", "End-to-end ms", -1], ["itl_p50_ms", "ITL p50 ms", -1], ["itl_p90_ms", "ITL p90 ms", -1], ["itl_p99_ms", "ITL p99 ms", -1],
 ];
+// t: 0 = worst (red), 0.5 = mid (yellow), 1 = best (green)
+function heatColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  let r, g, b;
+  if (t <= 0.5) {
+    const u = t / 0.5;
+    r = 235; g = Math.round(80 + u * 140); b = 70;
+  } else {
+    const u = (t - 0.5) / 0.5;
+    r = Math.round(235 - u * 165); g = 220; b = Math.round(70 + u * 20);
+  }
+  return `rgba(${r},${g},${b},0.28)`;
+}
 let chart = null;
 
 async function renderResults() {
@@ -215,6 +252,20 @@ async function renderResults() {
   if (!ids.length) { $("#result-body").innerHTML = ""; return; }
   const rows = await api(`/api/results?sweep_ids=${ids.join(",")}`);
   const qs = ids.join(",");
+  // Per-metric min/max across all rows, for the good/bad color gradient.
+  const ranges = {};
+  for (const [k] of METRICS) {
+    const vals = rows.map(r => r[`${k}_mean`]).filter(v => v != null);
+    if (vals.length) ranges[k] = [Math.min(...vals), Math.max(...vals)];
+  }
+  const heat = (k, v) => {
+    const m = METRICS.find(x => x[0] === k);
+    if (v == null || !ranges[k] || !m) return "";
+    const [lo, hi] = ranges[k];
+    if (hi === lo) return ` style="background:${heatColor(0.5)}"`;
+    const t = m[2] === 1 ? (v - lo) / (hi - lo) : (hi - v) / (hi - lo);
+    return ` style="background:${heatColor(t)}"`;
+  };
   $("#result-body").innerHTML = `
     <div class="card">
       <h3>Export</h3>
@@ -231,6 +282,8 @@ async function renderResults() {
         <select id="chart-metric">${METRICS.map(([k, h]) => `<option value="${k}">${h}</option>`).join("")}</select>
       </label>
       <div class="chart-box"><canvas id="chart" height="110"></canvas></div>
+      <p class="chart-caption">Bars are the mean across repetitions; the vertical whiskers are ±1 standard
+      deviation, so the spread of the repeated runs is visible at a glance.</p>
     </div>
     <div class="card" style="overflow-x:auto">
       <table id="results-table"><thead><tr>
@@ -240,28 +293,67 @@ async function renderResults() {
         <td>${r.sweep_id}</td><td>${esc(r.label)}</td><td>${esc(r.workload)}</td><td>${r.n}</td>
         ${METRICS.map(([k]) => {
           const m = r[`${k}_mean`], sd = r[`${k}_std`];
-          return `<td>${m == null ? "" : fmt(m, 2) + (sd ? ` <span class="hint">±${fmt(sd, 2)}</span>` : "")}</td>`;
+          return `<td${heat(k, m)}>${m == null ? "" : fmt(m, 2) + (sd ? ` <span class="hint">±${fmt(sd, 2)}</span>` : "")}</td>`;
         }).join("")}
       </tr>`).join("")}</tbody></table>
+      <p class="hint">Cell color per column:
+        <span class="swatch" style="background:${heatColor(1)}"></span> best ·
+        <span class="swatch" style="background:${heatColor(0.5)}"></span> middle ·
+        <span class="swatch" style="background:${heatColor(0)}"></span> worst.
+        t/s columns reward higher; latency columns reward lower.</p>
       ${rows.some(r => r.errors) ? `<p class="hint">⚠ Some samples errored — see variant logs on the sweep page.</p>` : ""}
     </div>`;
   const draw = () => drawChart(rows);
   $("#chart-metric").onchange = draw;
   draw();
 }
+// Chart.js plugin: draw ±stddev whiskers (mean ± 1 std across repetitions)
+// on top of each bar, so the spread of the repeated runs is visible.
+const errorBarPlugin = {
+  id: "errorBars",
+  afterDatasetsDraw(chart) {
+    const ds = chart.data.datasets[0];
+    if (!ds || !ds.error) return;
+    const meta = chart.getDatasetMeta(0);
+    const y = chart.scales.y;
+    if (!y || !meta) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.strokeStyle = "rgba(230,233,237,0.85)";
+    ctx.lineWidth = 1.5;
+    meta.data.forEach((bar, i) => {
+      const m = ds.data[i], e = ds.error[i];
+      if (m == null || e == null || e <= 0) return;
+      const x = bar.x;
+      const yTop = y.getPixelForValue(m + e);
+      const yBot = y.getPixelForValue(Math.max(0, m - e));
+      ctx.beginPath();
+      ctx.moveTo(x, yTop); ctx.lineTo(x, yBot);
+      ctx.moveTo(x - 4, yTop); ctx.lineTo(x + 4, yTop);
+      ctx.moveTo(x - 4, yBot); ctx.lineTo(x + 4, yBot);
+      ctx.stroke();
+    });
+    ctx.restore();
+  },
+};
+
 function drawChart(rows) {
   const metric = $("#chart-metric").value;
   const workloads = [...new Set(rows.map(r => r.workload))];
-  const labels = [...new Set(rows.map(r => r.label + (workloads.length > 1 ? ` · ${r.workload}` : "")))];
-  const data = labels.map(lab => {
-    const r = rows.find(x => (x.label + (workloads.length > 1 ? ` · ${x.workload}` : "")) === lab);
-    return r ? r[`${metric}_mean`] : null;
-  });
+  const key = r => r.label + (workloads.length > 1 ? ` · ${r.workload}` : "");
+  const labels = [...new Set(rows.map(key))];
+  const rowFor = lab => rows.find(x => key(x) === lab);
+  const data = labels.map(lab => { const r = rowFor(lab); return r ? r[`${metric}_mean`] : null; });
+  const error = labels.map(lab => { const r = rowFor(lab); return r ? r[`${metric}_std`] : null; });
   if (chart) chart.destroy();
   chart = new Chart($("#chart"), {
     type: "bar",
-    data: { labels, datasets: [{ label: metric, data, backgroundColor: "#4aa3ff" }] },
-    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+    data: { labels, datasets: [{ label: metric, data, error, backgroundColor: "#4aa3ff" }] },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } },
+    },
+    plugins: [errorBarPlugin],
   });
 }
 

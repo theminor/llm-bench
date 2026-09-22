@@ -64,17 +64,24 @@ code changes. If your server needs auth, put the header (e.g.
   Every workload runs for every variant (model × dimensions).
 * **Base args** (multi-line) — flags held constant across all variants; each
   line is shell-parsed.
-* **Dimensions** are swept as a cross-product. For each, a *name* plus *values*:
-  * leave the arg template **empty** and the name becomes the flag — name
-    `flash-attn` with values `on,off,auto` → `--flash-attn on`, `--flash-attn off`, …
-  * or use a template with `{v}`, e.g. `--n-gpu-layers {v}`
-  * values accept llama-bench ranges `1-16+4`, `1-32*2`, literals, or whole
-    flag-group fragments separated by `;` (a value starting with a flag is
-    passed through verbatim)
+* **Base env vars** (multi-line `KEY=value`) — environment variables held
+  constant for every variant (e.g. pin a GPU). They override any *default* env
+  set on the engine. A bare `KEY` means value `1`.
+* **Dimensions** are swept as a cross-product. Each has a *type*, a *name* and
+  *values*:
+  * **arg** (default) — a command-line flag. Leave the arg template **empty**
+    and the name becomes the flag (name `flash-attn`, values `on,off,auto` →
+    `--flash-attn on`, …), or use a template with `{v}` (e.g. `--n-gpu-layers
+    {v}`). Values accept llama-bench ranges `1-16+4`, `1-32*2`, literals, or
+    whole flag-group fragments separated by `;`.
+  * **env** — an environment variable. Each value is a `KEY=value` pair
+    (separated by `;` so values may contain commas), e.g. name `cuda` with
+    values `CUDA_VISIBLE_DEVICES=0;CUDA_VISIBLE_DEVICES=1`. These are set on
+    the engine process, not the command line.
 * **Repetitions** default to 3; each repetition gets a unique prompt suffix so
   prompt/prefix caching cannot fake-inflate your numbers.
-* **Preview plan** renders the *exact* command for the first variant, so flag
-  mistakes are visible before the sweep starts.
+* **Preview plan** renders the *exact* command **and env** for the first
+  variant, so mistakes are visible before the sweep starts.
 * **Clone** copies any finished sweep's configuration back into the New-sweep
   form so you can tweak and re-run instead of re-entering everything.
 
@@ -83,8 +90,12 @@ code changes. If your server needs auth, put the header (e.g.
 The **Results** tab aggregates any selection of sweeps into a table (with
 charts) and exports:
 
+* The table **heat-maps each metric column** green→yellow→red by rank, so the
+  best and worst variants are obvious at a glance (t/s columns reward higher;
+  latency columns reward lower). The chart draws each bar's mean with
+  **±1 stddev whiskers** showing the spread of the repeated runs.
 * **Markdown** — a human-readable summary (`/api/export/markdown?sweep_ids=1,2`)
-  for one or many sweeps: environment, models, dimensions, per-variant
+  for one or many sweeps: environment, models, dimensions, base env, per-variant
   mean ± stddev, best-wins notes. Perfect for posting results back where you
   found the idea.
 * CSV / JSON — aggregated metrics for further analysis

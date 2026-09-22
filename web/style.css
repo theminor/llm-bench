@@ -52,3 +52,6 @@ canvas { max-width: 100%; }
 ul.workloads-help { margin: 8px 0; padding-left: 20px; }
 ul.workloads-help li { margin: 5px 0; }
 .chart-box { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 12px 0; }
+table.rows select { width: 100%; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 2px; border: 1px solid rgba(255,255,255,.15); }
+.chart-caption { color: var(--muted); font-size: 12px; margin: 6px 2px 0; }

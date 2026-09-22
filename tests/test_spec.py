@@ -56,7 +56,7 @@ class TestDimensions:
     def test_template(self):
         d = Dimension(name="ngl", args="--n-gpu-layers {v}", values="99,20")
         out = d.expand()
-        assert [label for label, _ in out] == ["ngl=99", "ngl=20"]
+        assert [label for label, *_ in out] == ["ngl=99", "ngl=20"]
         assert out[0][1] == ["--n-gpu-layers", "99"]
 
     def test_empty_template_uses_name_as_flag(self):
@@ -84,6 +84,23 @@ class TestDimensions:
         d = Dimension(name="x", args="--foo", values="1,2")
         with pytest.raises(ValueError):
             d.expand()
+
+    def test_env_dimension_produces_env_not_args(self):
+        d = Dimension(name="sdl", type="env", values="SDL_VIDEODRIVER=x11;SDL_VIDEODRIVER=headless")
+        out = d.expand()
+        assert [argv for _, argv, _ in out] == [[], []]
+        assert out[0][2] == {"SDL_VIDEODRIVER": "x11"}
+        assert out[1][2] == {"SDL_VIDEODRIVER": "headless"}
+
+    def test_env_dimension_value_with_comma(self):
+        d = Dimension(name="cuda", type="env", values="CUDA_VISIBLE_DEVICES=0,1;CUDA_VISIBLE_DEVICES=2")
+        out = d.expand()
+        assert out[0][2] == {"CUDA_VISIBLE_DEVICES": "0,1"}
+        assert out[1][2] == {"CUDA_VISIBLE_DEVICES": "2"}
+
+    def test_env_dimension_bare_key_means_one(self):
+        d = Dimension(name="x", type="env", values="MY_FLAG")
+        assert d.expand()[0][2] == {"MY_FLAG": "1"}
 
 
 class TestPlanning:
@@ -144,6 +161,60 @@ class TestPlanning:
                          workloads=[Workload("pp", 512, 0)],
                          dimensions=[Dimension("a", "--a {v}", "1")])
         assert plan_variants(spec)[0].label == "a=1"
+
+    def test_env_dimension_planned_into_variant_env(self):
+        spec = SweepSpec(
+            name="t", engine="e", model="m.gguf",
+            base_env={"BASE": "1"},
+            workloads=[Workload("pp", 512, 0)],
+            dimensions=[
+                Dimension("fa", "", "on,off"),
+                Dimension("cuda", type="env", values="CUDA_VISIBLE_DEVICES=0;CUDA_VISIBLE_DEVICES=1"),
+            ],
+        )
+        vs = plan_variants(spec)
+        assert len(vs) == 4
+        # arg dim -> command line, env dim -> env (not on the command line)
+        v0 = vs[0]
+        assert v0.args[-2:] == ["--fa", "on"]
+        assert v0.env["CUDA_VISIBLE_DEVICES"] == "0"
+        assert all("CUDA" not in " ".join(v0.args) for _ in [0])
+        # base_env is carried on every variant separately from swept env
+        assert all("BASE" in v.env for v in vs) is False  # base_env lives on the spec, not variant.env
+        # distinct swept env values produced distinct variants
+        assert {v.env.get("CUDA_VISIBLE_DEVICES") for v in vs} == {"0", "1"}
+
+    def test_base_env_is_on_spec(self):
+        spec = SweepSpec(name="t", engine="e", model="m.gguf",
+                         base_env={"A": "1", "B": "2"},
+                         workloads=[Workload("pp", 512, 0)])
+        vs = plan_variants(spec)
+        assert vs[0].env == {}  # nothing swept, so per-variant env is empty
+        assert spec.base_env == {"A": "1", "B": "2"}
+
+
+class TestFromDict:
+    def test_parses_base_env_and_dim_type(self):
+        spec = SweepSpec.from_dict({
+            "name": "t", "engine": "e", "model": "m.gguf",
+            "base_env": {"A": "1", "B": "2"},
+            "dimensions": [
+                {"name": "fa", "args": "", "values": "on,off", "type": "arg"},
+                {"name": "cuda", "values": "CUDA_VISIBLE_DEVICES=0;=1", "type": "env"},
+            ],
+        })
+        assert spec.base_env == {"A": "1", "B": "2"}
+        assert spec.dimensions[0].type == "arg"
+        assert spec.dimensions[1].type == "env"
+        vs = plan_variants(spec)
+        assert vs[0].env == {"CUDA_VISIBLE_DEVICES": "0"}
+
+    def test_bad_dim_type_falls_back_to_arg(self):
+        spec = SweepSpec.from_dict({
+            "name": "t", "engine": "e", "model": "m.gguf",
+            "dimensions": [{"name": "x", "values": "1", "type": "nonsense"}],
+        })
+        assert spec.dimensions[0].type == "arg"
 
 
 class TestWorkload:

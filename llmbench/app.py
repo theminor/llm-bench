@@ -107,20 +107,24 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
         # Render the full command for the first variant so the user can see
         # exactly what will be executed (catches missing/duplicated flags).
         example_command = None
+        example_env = {}
         if variants:
+            v0 = variants[0]
+            example_env = {**(parsed.base_env or {}), **(v0.env or {})}
             eng = db.get_engine(parsed.engine)
             if eng:
                 prof = EngineProfile.from_dict(eng)
                 example_command = " ".join(
                     [prof.executable]
-                    + prof.render_args(variants[0].model, 0)
-                    + variants[0].args
+                    + prof.render_args(v0.model, 0)
+                    + v0.args
                 )
         return {
             "n_variants": len(variants),
             "n_requests_total": len(variants) * len(parsed.workloads) * parsed.repetitions,
             "variants": [v.label for v in variants[:200]],
             "example_command": example_command,
+            "example_env": example_env,
         }
 
     @app.post("/api/sweeps/{sweep_id}/run")
