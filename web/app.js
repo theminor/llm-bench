@@ -90,11 +90,11 @@ function addWl(kind = "pg", pp = 512, tg = 128) {
   tr.querySelector(".wl-kind").value = kind;
   $("#wl-table tbody").appendChild(tr);
 }
-function addDim(name = "", args = "{v}", values = "") {
+function addDim(name = "", args = "", values = "") {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input class="dim-name" value="${esc(name)}" placeholder="threads"></td>
-    <td><input class="dim-args" value="${esc(args)}" placeholder="--threads {v}"></td>
-    <td><input class="dim-values" value="${esc(values)}" placeholder="1-16+4"></td>
+  tr.innerHTML = `<td><input class="dim-name" value="${esc(name)}" placeholder="numa"></td>
+    <td><input class="dim-args" value="${esc(args)}" placeholder="empty = --numa value"></td>
+    <td><input class="dim-values" value="${esc(values)}" placeholder="distribute,isolate,numactl"></td>
     <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
   $("#dim-table tbody").appendChild(tr);
 }
@@ -128,8 +128,12 @@ function formSpec() {
 $("#btn-plan").onclick = async () => {
   try {
     const p = await api("/api/sweeps/plan", { method: "POST", body: JSON.stringify(formSpec()) });
-    $("#plan-preview").textContent = `→ ${p.n_variants} variant(s) × workloads × reps = ${p.n_requests_total} measured requests. ` +
-      `First: ${p.variants.slice(0, 6).join(" | ")}${p.variants.length > 6 ? " …" : ""}`;
+    let html = `→ ${p.n_variants} variant(s) × workloads × reps = ${p.n_requests_total} measured requests. ` +
+      `Variants: ${esc(p.variants.slice(0, 8).join(" | "))}${p.variants.length > 8 ? " …" : ""}`;
+    if (p.example_command) {
+      html += `<br>Exact command for the first variant (port is auto-assigned at run time):<br><code class="cmd-preview">${esc(p.example_command)}</code>`;
+    }
+    $("#plan-preview").innerHTML = html;
   } catch (e) { $("#plan-preview").textContent = `⚠ ${e.message}`; }
 };
 $("#sweep-form").onsubmit = async ev => {
@@ -337,5 +341,7 @@ async function sweepDetail(id) {
 }
 
 /* init */
+addWl("pg", 512, 128);
+addDim();
 renderSweeps();
 pollTimer = setInterval(renderSweeps, 1500);

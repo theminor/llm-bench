@@ -69,12 +69,15 @@ class Dimension:
     """One swept parameter.
 
     ``args`` is an argument template; ``{v}`` is replaced by each value.
-    If ``args`` is empty the value itself must be the full fragment
-    (useful for switching between whole flag groups).
+    Template modes:
+      * empty          -> smart: emits ``--<name> <value>``; a value that is
+                          already a flag (starts with ``--``) is emitted as-is
+      * ``{v}``        -> raw: emits exactly the value (whole flag groups)
+      * anything with ``{v}`` -> the value is substituted into the template
     """
 
     name: str
-    args: str = "{v}"
+    args: str = ""
     values: str = ""
 
     def expand(self) -> list[tuple[str, list[str]]]:
@@ -82,13 +85,15 @@ class Dimension:
         result: list[tuple[str, list[str]]] = []
         for v in expand_values(self.values):
             if self.args.strip() == "":
-                fragment = v
+                # Smart default: the dimension name is the flag, unless the
+                # value is already a full flag fragment.
+                fragment = v if v.startswith("--") else f"--{self.name} {v}"
             elif "{v}" in self.args:
                 fragment = self.args.replace("{v}", v)
             else:
                 raise ValueError(
                     f"dimension {self.name!r}: args template must contain {{v}} "
-                    "unless values are full fragments (args left empty)"
+                    "unless left empty (flag = dimension name)"
                 )
             argv = shlex.split(fragment) if fragment.strip() else []
             result.append((f"{self.name}={v}", argv))

@@ -59,8 +59,24 @@ class TestDimensions:
         assert [label for label, _ in out] == ["ngl=99", "ngl=20"]
         assert out[0][1] == ["--n-gpu-layers", "99"]
 
+    def test_empty_template_uses_name_as_flag(self):
+        d = Dimension(name="numa", args="", values="distribute,isolate,numactl")
+        out = d.expand()
+        assert out[0][1] == ["--numa", "distribute"]
+        assert out[2][1] == ["--numa", "numactl"]
+
+    def test_empty_template_negative_values_stay_flagged(self):
+        d = Dimension(name="ngl", args="", values="-1,99")
+        out = d.expand()
+        assert out[0][1] == ["--ngl", "-1"]
+
+    def test_empty_template_values_that_are_flags_pass_through(self):
+        d = Dimension(name="x", args="", values="--a 1;--b 2")
+        out = d.expand()
+        assert out[0][1] == ["--a", "1"]
+
     def test_raw_fragments(self):
-        d = Dimension(name="fa", args="", values="--flash-attn on;--flash-attn off")
+        d = Dimension(name="fa", args="{v}", values="--flash-attn on;--flash-attn off")
         out = d.expand()
         assert out[1][1] == ["--flash-attn", "off"]
 

@@ -70,16 +70,23 @@
     For each value the fragment is appended to the engine command line verbatim, so <i>any</i> flag the
     engine understands can be swept — including flags that don't exist yet.</p>
     <table id="dim-table" class="rows">
-      <thead><tr><th>Name</th><th>Arg template (<code>{v}</code>)</th><th>Values</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Arg template (optional; <code>{v}</code> = value)</th><th>Values</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button type="button" id="dim-add" class="small">+ dimension</button>
-    <p class="hint"><b>Arg template:</b> the command-line fragment with <code>{v}</code> where the value goes,
-    e.g. <code>--threads {v}</code> or <code>--n-gpu-layers {v}</code>.<br>
+    <p class="hint"><b>Arg template:</b> how each value is turned into a command-line fragment.
+    Three ways:
+    (1) <b>Leave it empty</b> and the dimension <i>name</i> is used as the flag — name
+    <code>numa</code> with values <code>distribute,isolate,numactl</code> becomes
+    <code>--numa distribute</code>, <code>--numa isolate</code>, <code>--numa numactl</code>.
+    (2) Put <code>{v}</code> plus surrounding text, e.g. <code>--threads {v}</code>.
+    (3) Put just <code>{v}</code> to emit the value as-is — for switching between whole flag
+    groups: <code>{v}</code> with values <code>--flash-attn on;--flash-attn off</code>.<br>
     <b>Values:</b> <code>1,2,4-8+2</code> (llama-bench ranges: first-last, +step, *multiplier),
-    literals like <code>on,off,auto</code>, or whole argument fragments separated by <code>;</code>
-    if values themselves contain commas (leave the template empty for those).<br>
-    <b>Flag on/off:</b> template <code>{v}</code>, values <code>--flash-attn on;--flash-attn off</code>.</p>
+    literals like <code>on,off,auto</code>, or fragments separated by <code>;</code> when a
+    value itself contains commas (e.g. <code>--ts 1,2;--ts 3,4</code>).<br>
+    Click <b>Preview plan</b> to see the exact command that will run for the first variant
+    before committing to the sweep.</p>
 
     <div class="grid2">
       <label>Repetitions
@@ -136,11 +143,13 @@
           <span class="hint">Full path to the engine binary, or a command on <code>PATH</code>.
           If you built llama.cpp from source, use the exact path to the built binary.</span></label>
       </div>
-      <label>Args (one per line; <code>{model}</code> <code>{port}</code> are substituted)
+      <label>Args (one or more per line; <code>{model}</code> <code>{port}</code> are substituted)
         <textarea id="ef-args" rows="4"
         placeholder="--model {model}&#10;--host 127.0.0.1&#10;--port {port}"></textarea>
         <span class="hint">The fixed part of the command line (swept flags get appended to this).
-        Always bind to 127.0.0.1 and use <code>{port}</code> so llm-bench can find the server.</span></label>
+        Each line is shell-parsed, so a line may hold a flag and its value.
+        Always bind to 127.0.0.1 and use <code>{port}</code> so llm-bench can find the server.
+        If a model path can contain spaces, quote it: <code>--model "{model}"</code>.</span></label>
       <div class="grid2">
         <label>Ready path
           <input id="ef-ready" value="/health">

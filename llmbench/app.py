@@ -101,10 +101,23 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
             variants = plan_variants(parsed)
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(400, f"invalid sweep spec: {e}")
+        # Render the full command for the first variant so the user can see
+        # exactly what will be executed (catches missing/duplicated flags).
+        example_command = None
+        if variants:
+            eng = db.get_engine(parsed.engine)
+            if eng:
+                prof = EngineProfile.from_dict(eng)
+                example_command = " ".join(
+                    [prof.executable]
+                    + prof.render_args(parsed.model, 0)
+                    + variants[0].args
+                )
         return {
             "n_variants": len(variants),
             "n_requests_total": len(variants) * len(parsed.workloads) * parsed.repetitions,
             "variants": [v.label for v in variants[:200]],
+            "example_command": example_command,
         }
 
     @app.post("/api/sweeps/{sweep_id}/run")

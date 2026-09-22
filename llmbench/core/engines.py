@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import signal
 import time
 from dataclasses import dataclass, field
@@ -81,9 +82,16 @@ class EngineProfile:
         )
 
     def render_args(self, model: str, port: int) -> list[str]:
+        # Each args line is shell-split, so lines may be written naturally
+        # as "--model {model}" (flag + value) instead of one token per line.
+        # Quote a value if it may contain spaces: --model "{model}".
         out = []
         for a in self.args:
-            out.append(a.replace("{model}", model).replace("{port}", str(port)))
+            line = a.replace("{model}", model).replace("{port}", str(port))
+            try:
+                out.extend(shlex.split(line))
+            except ValueError as e:
+                raise ValueError(f"unparseable engine arg line {line!r}: {e}")
         return out
 
     def render_headers(self, port: int) -> dict[str, str]:
