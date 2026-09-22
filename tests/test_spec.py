@@ -121,6 +121,30 @@ class TestPlanning:
         dims = [Dimension("a", "--a {v}", "1,2")]
         assert plan_variants(self.spec(dims))[1].label == "a=2"
 
+    def test_multi_model_cross_product(self):
+        spec = SweepSpec(
+            name="t", engine="e",
+            models=["/m/a-Q4.gguf", "/m/b-Q8.gguf"],
+            workloads=[Workload("pp", 512, 0)],
+            dimensions=[Dimension("flash-attn", "", "on,off")],
+        )
+        vs = plan_variants(spec)
+        assert len(vs) == 4
+        labels = sorted(v.label for v in vs)
+        assert "a-Q4.gguf flash-attn=on" in labels
+        assert "b-Q8.gguf flash-attn=off" in labels
+        # each variant carries its own model
+        assert {v.model for v in vs} == {"/m/a-Q4.gguf", "/m/b-Q8.gguf"}
+        # smart dimension emitted the flag from the name
+        fa_args = [v.args for v in vs if v.label == "a-Q4.gguf flash-attn=on"][0]
+        assert fa_args[-2:] == ["--flash-attn", "on"]
+
+    def test_single_model_label_omits_model(self):
+        spec = SweepSpec(name="t", engine="e", models=["/m/solo.gguf"],
+                         workloads=[Workload("pp", 512, 0)],
+                         dimensions=[Dimension("a", "--a {v}", "1")])
+        assert plan_variants(spec)[0].label == "a=1"
+
 
 class TestWorkload:
     def test_labels(self):

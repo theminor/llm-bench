@@ -70,10 +70,11 @@ class Dimension:
 
     ``args`` is an argument template; ``{v}`` is replaced by each value.
     Template modes:
-      * empty          -> smart: emits ``--<name> <value>``; a value that is
-                          already a flag (starts with ``--``) is emitted as-is
-      * ``{v}``        -> raw: emits exactly the value (whole flag groups)
-      * anything with ``{v}`` -> the value is substituted into the template
+      * empty or ``{v}`` -> smart: emits ``--<name> <value>``; a value that is
+        already a flag (starts with ``--``) is emitted as-is, which is how you
+        sweep whole flag groups (e.g. ``--a 1;--b 2``)
+      * anything else containing ``{v}`` -> the value is substituted into the
+        template (e.g. ``--n-gpu-layers {v}``)
     """
 
     name: str
@@ -84,9 +85,9 @@ class Dimension:
         """Return list of (display_label, argv_fragments)."""
         result: list[tuple[str, list[str]]] = []
         for v in expand_values(self.values):
-            if self.args.strip() == "":
-                # Smart default: the dimension name is the flag, unless the
-                # value is already a full flag fragment.
+            if self.args.strip() in ("", "{v}"):
+                # Smart mode: the dimension name is the flag, unless the value
+                # is already a full flag fragment.
                 fragment = v if v.startswith("--") else f"--{self.name} {v}"
             elif "{v}" in self.args:
                 fragment = self.args.replace("{v}", v)
@@ -136,23 +137,30 @@ class Workload:
 class SweepSpec:
     name: str
     engine: str
-    model: str = ""
-    base_args: str = ""            # applied to every variant (shlex string)
+    model: str = ""                 # single model (back-compat)
+    models: list[str] = field(default_factory=list)  # swept: cross-product
+    base_args: str = ""             # applied to every variant (shlex string)
     workloads: list[Workload] = field(default_factory=list)
     dimensions: list[Dimension] = field(default_factory=list)
     repetitions: int = 3
     warmup: bool = True
     cooldown_s: float = 2.0
-    port: int = 0                  # 0 = auto-assign
+    port: int = 0                   # 0 = auto-assign
     startup_timeout_s: float = 300.0
     request_timeout_s: float = 600.0
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "SweepSpec":
+        models = [str(m) for m in d.get("models", []) if str(m).strip()]
+        single = str(d.get("model", "") or "")
+        # `model` is the legacy single field; if `models` absent, fall back to it.
+        if not models and single:
+            models = [single]
         return SweepSpec(
             name=str(d.get("name") or "sweep"),
             engine=str(d["engine"]),
-            model=str(d.get("model", "")),
+            model=single or (models[0] if models else ""),
+            models=models,
             base_args=str(d.get("base_args", "")),
             workloads=[Workload(**w) for w in d.get("workloads", [])],
             dimensions=[Dimension(**dim) for dim in d.get("dimensions", [])],
@@ -170,29 +178,53 @@ class Variant:
     labels: dict[str, str]
     args: list[str]
     label: str
+    model: str = ""
 
     @property
     def key(self) -> str:
-        return "|".join(f"{k}={v}" for k, v in sorted(self.labels.items()))
+        parts = [f"{k}={v}" for k, v in sorted(self.labels.items())]
+        return "|".join(parts) + f"||model={self.model}"
+
+
+def _model_label(model: str) -> str:
+    """Short display label for a model path/name."""
+    if not model:
+        return ""
+    base = model.rstrip("/").rsplit("/", 1)[-1]
+    return base or model
 
 
 def plan_variants(spec: SweepSpec) -> list[Variant]:
-    """Cross-product of all dimensions (llama-bench style), deduplicated."""
+    """Cross-product of models × dimensions (llama-bench style), deduplicated.
+
+    With no models and no dimensions this yields a single baseline variant.
+    """
     expanded = [dim.expand() for dim in spec.dimensions]
     base = shlex.split(spec.base_args) if spec.base_args.strip() else []
+    models = spec.models or ([spec.model] if spec.model else [""])
+    dim_combos = [()] if not expanded else list(itertools.product(*expanded))
+
     seen: set[str] = set()
     variants: list[Variant] = []
-    if not expanded:
-        variants.append(Variant(labels={}, args=base, label="(baseline)"))
-        return variants
-    for combo in itertools.product(*expanded):
-        labels = {name: value for name, value in ((c[0].split("=", 1)[0], c[0].split("=", 1)[1]) for c in combo)}
-        args = list(base)
-        for _, argv in combo:
-            args.extend(argv)
-        v = Variant(labels=labels, args=args, label=" ".join(combo_c[0] for combo_c in combo))
-        if v.key in seen:
-            continue
-        seen.add(v.key)
-        variants.append(v)
+    # Only surface the model in the display label when comparing several
+    # models; with a single model it would be redundant noise.
+    multi_model = len(set(models)) > 1
+    for model in models:
+        for combo in dim_combos:
+            labels: dict[str, str] = {}
+            if model:
+                labels["model"] = _model_label(model)
+            for c in combo:
+                nm, val = c[0].split("=", 1)
+                labels[nm] = val
+            args = list(base)
+            for _, argv in combo:
+                args.extend(argv)
+            label_parts = ([_model_label(model)] if model and multi_model else []) + [c[0] for c in combo]
+            label = " ".join(label_parts) if label_parts else "(baseline)"
+            v = Variant(labels=labels, args=args, label=label, model=model)
+            if v.key in seen:
+                continue
+            seen.add(v.key)
+            variants.append(v)
     return variants

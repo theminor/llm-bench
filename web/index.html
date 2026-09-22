@@ -14,6 +14,7 @@
     <button data-tab="sweeps" class="tab active">Sweeps</button>
     <button data-tab="new" class="tab">New sweep</button>
     <button data-tab="results" class="tab">Results</button>
+    <button data-tab="logs" class="tab">Logs</button>
     <button data-tab="engines" class="tab">Engines</button>
   </nav>
 </header>
@@ -39,30 +40,41 @@
       <label>Engine
         <select id="sf-engine" required></select>
         <span class="hint">Which configured engine (see the Engines tab) to launch for every variant.</span></label>
-      <label class="wide">Model path / name
-        <input id="sf-model" placeholder="/models/Qwen2.5-7B-Q4_K_M.gguf">
-        <span class="hint">Substituted into the engine's <code>{model}</code> argument. A local file for llama.cpp
-        (llama.cpp only loads one model per process), a model name or path for vLLM. Leave empty if the
-        engine doesn't need one.</span></label>
-      <label class="wide">Base args (applied to every variant)
-        <input id="sf-base" placeholder="--flash-attn on --no-mmap">
-        <span class="hint">Flags common to all variants — the things you are <i>not</i> testing but want fixed.
-        Anything here also applies to the baseline. Shell-style quoting works.</span></label>
+      <label class="wide">Models (one per line via the table — add several to compare their speeds)
+        <span class="hint" style="display:block">Each model is substituted into the engine's <code>{model}</code>
+        argument and run under identical settings, so you can compare one model against another.
+        Use a local file path for llama.cpp, a model name or path for vLLM. Add more than one to compare.</span>
+      </label>
+      <table id="models-table" class="rows">
+        <thead><tr><th>Model path / name</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button type="button" id="models-add" class="small">+ model</button>
+
+      <label class="wide">Base args (applied to every variant — one or more lines)
+        <textarea id="sf-base" rows="3" placeholder="--flash-attn on --no-mmap&#10;--threads 8"></textarea>
+        <span class="hint">Flags common to all variants — the things you are <i>not</i> testing but want held
+        constant. Each line is shell-parsed, so a line may hold several flags. Leave blank if none.</span></label>
     </div>
 
-    <h3>Workloads</h3>
-    <p class="hint">What kind of request shape to measure. Same idea as llama-bench's pp/tg/pg tests,
-    but sent over HTTP to the running server. A sweep runs every workload for every variant.</p>
+    <h3>Workloads <span class="hint">— what request shape to measure</span></h3>
+    <p class="hint">A <b>workload</b> is one kind of request llm-bench sends to the running server and times.
+    You pick the prompt length and how many tokens to generate. A sweep runs <i>every</i> workload for
+    <i>every</i> variant (model × dimensions). The three kinds mirror llama-bench:</p>
+    <ul class="hint workloads-help">
+      <li><b>pp — prefill / prompt processing.</b> The server reads a long prompt (N tokens) and emits just
+      one token. This measures how fast it chews through input — the part that makes the first token wait on
+      a long chat. Reported as <b>Prefill t/s</b> and <b>TTFT</b> (time to first token).</li>
+      <li><b>tg — token generation / decode.</b> A tiny prompt, then generate N tokens. This measures the
+      steady typing speed you actually watch. Reported as <b>Decode t/s</b> and inter-token latency (ITL).</li>
+      <li><b>pg — prefill + generate (realistic).</b> A long prompt followed by N generated tokens, like a real
+      request. Captures both phases plus total <b>E2E</b> latency.</li>
+    </ul>
     <table id="wl-table" class="rows">
       <thead><tr><th>Kind</th><th>Prompt tokens</th><th>Gen tokens</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button type="button" id="wl-add" class="small">+ workload</button>
-    <p class="hint"><b>pp</b> (prefill): feed a prompt of N tokens, generate one. Measures how fast the
-    prompt is processed (time-to-first-token).<br>
-    <b>tg</b> (generation): tiny prompt, generate N tokens. Measures steady-state generation speed.<br>
-    <b>pg</b> (prompt + generate): realistic chat-shaped request: a prompt of N tokens followed by
-    M generated tokens.</p>
 
     <h3>Dimensions</h3>
     <p class="hint">The parameters you want to test. Each dimension is swept across all its values and
@@ -74,17 +86,17 @@
       <tbody></tbody>
     </table>
     <button type="button" id="dim-add" class="small">+ dimension</button>
-    <p class="hint"><b>Arg template:</b> how each value is turned into a command-line fragment.
-    Three ways:
-    (1) <b>Leave it empty</b> and the dimension <i>name</i> is used as the flag — name
-    <code>numa</code> with values <code>distribute,isolate,numactl</code> becomes
-    <code>--numa distribute</code>, <code>--numa isolate</code>, <code>--numa numactl</code>.
-    (2) Put <code>{v}</code> plus surrounding text, e.g. <code>--threads {v}</code>.
-    (3) Put just <code>{v}</code> to emit the value as-is — for switching between whole flag
-    groups: <code>{v}</code> with values <code>--flash-attn on;--flash-attn off</code>.<br>
+    <p class="hint"><b>Arg template:</b> how each value becomes a command-line fragment.
+    Two ways:
+    (1) <b>Leave it empty</b> — the dimension <i>name</i> is used as the flag. E.g. name
+    <code>flash-attn</code> with values <code>on,off,auto</code> becomes
+    <code>--flash-attn on</code>, <code>--flash-attn off</code>, <code>--flash-attn auto</code>.
+    (2) Put surrounding text with <code>{v}</code> for the value, e.g. <code>--n-gpu-layers {v}</code>.
+    To switch between whole flag groups, make the <i>values</i> start with a flag — e.g. values
+    <code>--flash-attn on --no-mmap;--flash-attn off</code> (separated by <code>;</code>).<br>
     <b>Values:</b> <code>1,2,4-8+2</code> (llama-bench ranges: first-last, +step, *multiplier),
-    literals like <code>on,off,auto</code>, or fragments separated by <code>;</code> when a
-    value itself contains commas (e.g. <code>--ts 1,2;--ts 3,4</code>).<br>
+    literals like <code>on,off,auto</code>, or fragments separated by <code>;</code> when a value
+    itself contains commas (e.g. <code>--ts 1,2;--ts 3,4</code>).<br>
     Click <b>Preview plan</b> to see the exact command that will run for the first variant
     before committing to the sweep.</p>
 
@@ -122,6 +134,15 @@
   measured at the HTTP level — i.e. what you actually experience.</p>
   <div id="result-pick" class="card"></div>
   <div id="result-body"></div>
+</section>
+
+<section id="tab-logs" class="tab-page hidden">
+  <h2>Logs</h2>
+  <p class="hint">Full server output (stdout + stderr) for every variant of every sweep, in one place.
+  This is where crashes, startup errors, and the engine's per-request timing lines live. Rows are
+  newest first; open a running variant's log and it keeps refreshing while it runs. Use
+  <b>Check</b> on the Engines tab to verify an executable path resolves.</p>
+  <div id="log-list"></div>
 </section>
 
 <section id="tab-engines" class="tab-page hidden">
@@ -191,7 +212,12 @@
 </main>
 <div id="log-modal" class="hidden">
   <div class="modal-card">
-    <div class="modal-head"><span id="log-title"></span><button id="log-close" class="small">Close</button></div>
+    <div class="modal-head"><span id="log-title"></span>
+      <span style="display:flex;gap:8px;align-items:center">
+        <button id="log-refresh" class="small ghost">Refresh</button>
+        <a id="log-download" download="variant.log" style="display:none"><button class="small ghost">Download</button></a>
+        <button id="log-close" class="small">Close</button>
+      </span></div>
     <pre id="log-body"></pre>
   </div>
 </div>

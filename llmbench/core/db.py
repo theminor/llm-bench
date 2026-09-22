@@ -176,6 +176,15 @@ class Database:
         rows = self._query("SELECT * FROM variants WHERE id = ?", (variant_id,))
         return rows[0] if rows else None
 
+    def list_variants_all(self) -> list[dict]:
+        """Variants across all sweeps, newest first, with sweep name."""
+        return self._query(
+            "SELECT v.id, v.idx, v.label, v.status, v.error, v.log_path, v.started_at, v.finished_at, "
+            "v.sweep_id, s.name AS sweep_name, s.status AS sweep_status "
+            "FROM variants v JOIN sweeps s ON s.id = v.sweep_id "
+            "ORDER BY v.id DESC",
+        )
+
     # ---- samples -----------------------------------------------------
     def add_sample(self, variant_id: int, sweep_id: int, sample: dict, is_warmup: bool = False) -> None:
         self._exec(

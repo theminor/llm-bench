@@ -57,7 +57,7 @@ class Runner:
                 self._update(sweep_id, state="failed", message=f"engine {spec.engine!r} not found")
                 return
             profile = EngineProfile.from_dict(eng_dict)
-            if profile.model_required and not spec.model:
+            if profile.model_required and not (spec.models or [spec.model]):
                 self.db.set_sweep_status(sweep_id, "failed")
                 self._update(sweep_id, state="failed", message="this engine requires a model path")
                 return
@@ -69,7 +69,7 @@ class Runner:
                     "labels": v.labels,
                     "args": v.args,
                     "command_preview": " ".join(
-                        [profile.executable] + profile.render_args(spec.model, spec.port or 0) + v.args
+                        [profile.executable] + profile.render_args(v.model, spec.port or 0) + v.args
                     ),
                 }
                 for v in variants
@@ -117,8 +117,9 @@ class Runner:
     ) -> bool:
         port = spec.port or _free_port()
         log_path = str(self.data_dir / "logs" / f"sweep{sweep_id}_variant{variant_id}.log")
+        model = variant.model or "default"
         server = ServerProcess(
-            profile, variant.args, spec.model, port, log_path,
+            profile, variant.args, variant.model, port, log_path,
             ready_timeout_s=spec.startup_timeout_s,
         )
         self.db.update_variant(
@@ -149,7 +150,7 @@ class Runner:
                 if spec.warmup:
                     self._update(sweep_id, workload=wl.label, rep=-1, message="warmup")
                     warm = await measure_request(
-                        client, server.base_url, spec.model or "default",
+                        client, server.base_url, model,
                         prompt + " [warmup]", wl.max_tokens, wl.label, -1, headers,
                     )
                     self.db.add_sample(variant_id, sweep_id, warm.__dict__ | {"workload": wl.label, "rep": -1}, is_warmup=True)
@@ -161,7 +162,7 @@ class Runner:
                     self._update(sweep_id, workload=wl.label, rep=rep)
                     # unique suffix per rep defeats prefix caching
                     s = await measure_request(
-                        client, server.base_url, spec.model or "default",
+                        client, server.base_url, model,
                         f"{prompt} [rep{rep}]", wl.max_tokens, wl.label, rep, headers,
                     )
                     if profile.timing == "llamacpp" and s.ok:

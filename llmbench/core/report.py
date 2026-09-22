@@ -93,7 +93,12 @@ def to_markdown(db: Database, sweep_ids: list[int], title: str = "") -> str:
         out.append("")
         out.append(f"- **Status:** {sweep['status']}  ")
         out.append(f"- **Engine:** `{spec.get('engine', '')}`  ")
-        out.append(f"- **Model:** `{spec.get('model', '')}`  ")
+        # Model: prefer the (possibly multi) models list, fall back to legacy field.
+        model_list = spec.get("models") or ([spec["model"]] if spec.get("model") else [])
+        model_short = [m.rstrip("/").rsplit("/", 1)[-1] for m in model_list]
+        out.append(f"- **Model:** `{', '.join(model_short) or '(none)'}`  ")
+        if len(model_list) > 1:
+            out.append(f"  comparing {len(model_list)} models: " + ", ".join(f"`{m}`" for m in model_list) + "  ")
         dims = spec.get("dimensions", [])
         if dims:
             out.append(f"- **Dimensions:** " + ", ".join(f"`{d['name']}`" for d in dims) + "  ")

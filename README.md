@@ -53,29 +53,46 @@ code changes. If your server needs auth, put the header (e.g.
 
 ## Defining a sweep
 
+* **Models** — add one or more models. Each is substituted into the engine's
+  `{model}` argument and run under identical settings, so a multi-model sweep
+  directly compares model speed (this is the cross-product dimension just like
+  the others).
 * **Workloads** mirror llama-bench's test kinds:
-  * `pp` — prefill a prompt of N tokens, generate 1
-  * `tg` — generate N tokens from a tiny prompt
-  * `pg` — realistic: prompt of N tokens then generate M
-* **Dimensions** are swept as a cross-product. Values can be
-  * lists and ranges (llama-bench syntax): `99,20,10`, `1-16+4`, `1-32*2`
-  * literal strings: `on,off,auto`
-  * full argument fragments (leave the arg template empty, separate with `;`):
-    `--flash-attn on --no-mmap;--flash-attn off --no-mmap`
+  * `pp` — prefill a prompt of N tokens, generate 1 (→ Prefill t/s, TTFT)
+  * `tg` — generate N tokens from a tiny prompt (→ Decode t/s, ITL)
+  * `pg` — realistic: prompt of N tokens then generate M (→ both + E2E)
+  Every workload runs for every variant (model × dimensions).
+* **Base args** (multi-line) — flags held constant across all variants; each
+  line is shell-parsed.
+* **Dimensions** are swept as a cross-product. For each, a *name* plus *values*:
+  * leave the arg template **empty** and the name becomes the flag — name
+    `flash-attn` with values `on,off,auto` → `--flash-attn on`, `--flash-attn off`, …
+  * or use a template with `{v}`, e.g. `--n-gpu-layers {v}`
+  * values accept llama-bench ranges `1-16+4`, `1-32*2`, literals, or whole
+    flag-group fragments separated by `;` (a value starting with a flag is
+    passed through verbatim)
 * **Repetitions** default to 3; each repetition gets a unique prompt suffix so
   prompt/prefix caching cannot fake-inflate your numbers.
-* "Preview plan" shows the variant count before you burn GPU time.
+* **Preview plan** renders the *exact* command for the first variant, so flag
+  mistakes are visible before the sweep starts.
+* **Clone** copies any finished sweep's configuration back into the New-sweep
+  form so you can tweak and re-run instead of re-entering everything.
 
-## Results & export
+## Results, exports & logs
 
 The **Results** tab aggregates any selection of sweeps into a table (with
-per-dimension charts) and exports:
+charts) and exports:
 
 * **Markdown** — a human-readable summary (`/api/export/markdown?sweep_ids=1,2`)
-  for one or many sweeps: environment, dimensions, per-variant mean ± stddev,
-  best-wins notes. Perfect for posting results back where you found the idea.
+  for one or many sweeps: environment, models, dimensions, per-variant
+  mean ± stddev, best-wins notes. Perfect for posting results back where you
+  found the idea.
 * CSV / JSON — aggregated metrics for further analysis
 * SQL — `CREATE TABLE llm_bench` + inserts, pipe into `sqlite3` (llama-bench style)
+
+The **Logs** tab is one place for the full stdout+stderr of every variant of
+every sweep — where crashes, startup errors, and the engine's per-request
+timing lines live. A running variant's log keeps refreshing while open.
 
 ## Running on a remote machine / Desktop Rig
 

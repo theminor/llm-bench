@@ -91,6 +91,9 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
             raise HTTPException(400, f"unknown engine {parsed.engine!r}")
         if not parsed.workloads:
             raise HTTPException(400, "sweep needs at least one workload")
+        eng = db.get_engine(parsed.engine)
+        if eng.get("model_required", True) and not (parsed.models or [parsed.model]):
+            raise HTTPException(400, f"engine {parsed.engine!r} requires at least one model")
         sid = db.create_sweep(parsed.name, spec, snapshot())
         return {"id": sid}
 
@@ -110,7 +113,7 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
                 prof = EngineProfile.from_dict(eng)
                 example_command = " ".join(
                     [prof.executable]
-                    + prof.render_args(parsed.model, 0)
+                    + prof.render_args(variants[0].model, 0)
                     + variants[0].args
                 )
         return {
@@ -161,6 +164,16 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
         if not path or not Path(path).exists():
             return PlainTextResponse("(no log captured)")
         return PlainTextResponse(Path(path).read_text(errors="replace")[-200_000:])
+
+    @app.get("/api/logs")
+    def logs_list():
+        """All variant server logs, newest first — one place to inspect runs."""
+        rows = db.list_variants_all()
+        for r in rows:
+            p = r.get("log_path") or ""
+            size = Path(p).stat().st_size if p and Path(p).exists() else 0
+            r["log_bytes"] = size
+        return rows
 
     # ---- results & exports -------------------------------------------
     def _parse_ids(sweep_ids: str) -> list[int]:

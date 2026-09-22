@@ -36,6 +36,7 @@ $$(".tab").forEach(b => b.onclick = () => {
   clearInterval(pollTimer);
   if (tab === "sweeps") { renderSweeps(); pollTimer = setInterval(renderSweeps, 1500); }
   if (tab === "results") renderResultPicker(pendingPreselect);
+  if (tab === "logs") { renderLogs(); pollTimer = setInterval(renderLogs, 3000); }
   if (tab === "engines") renderEngines();
   if (tab === "new") loadEngineSelect();
   pendingPreselect = null;
@@ -48,11 +49,13 @@ async function renderSweeps() {
   if (!sweeps.length) { el.innerHTML = `<div class="card">No sweeps yet. <button onclick="$('[data-tab=new]').click()">Create one</button></div>`; return; }
   el.innerHTML = sweeps.map(s => {
     const p = s.status === "running" ? progressCard(s) : "";
+    const models = (s.spec.models && s.spec.models.length ? s.spec.models : (s.spec.model ? [s.spec.model] : []));
+    const modelStr = models.length ? models.map(m => m.split("/").pop()).join(", ") : "(none)";
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <b>#${s.id} ${esc(s.name)}</b> <span class="badge ${esc(s.status)}">${esc(s.status)}</span>
       </div>
-      <div class="hint">${esc(s.spec.engine)} · model ${esc(s.spec.model || "(none)")} ·
+      <div class="hint">${esc(s.spec.engine)} · model ${esc(modelStr)} ·
         ${s.spec.workloads.length} workload(s) · ${s.spec.repetitions} reps · ${esc(s.created_at)}</div>
       ${p}
       <div class="actions">
@@ -61,6 +64,7 @@ async function renderSweeps() {
           : `<button class="small" onclick="runSweep(${s.id})">Run</button>`}
         <button class="small ghost" onclick="sweepDetail(${s.id})">Variants</button>
         <button class="small ghost" onclick="viewResults(${s.id})">Results</button>
+        <button class="small ghost" onclick="cloneSweep(${s.id})">Clone</button>
         <button class="small ghost" onclick="deleteSweep(${s.id})">Delete</button>
       </div>
     </div>`;
@@ -69,6 +73,34 @@ async function renderSweeps() {
 function viewResults(id) {
   pendingPreselect = id;
   $('[data-tab="results"]').click();
+}
+async function cloneSweep(id) {
+  try {
+    const s = await api(`/api/sweeps/${id}`);
+    const sp = s.spec;
+    $("#sf-name").value = (sp.name || "sweep") + " (copy)";
+    await loadEngineSelect();
+    $("#sf-engine").value = sp.engine;
+    // models
+    $("#models-table tbody").innerHTML = "";
+    const models = (sp.models && sp.models.length ? sp.models : (sp.model ? [sp.model] : []));
+    (models.length ? models : [""]).forEach(m => addModel(m));
+    $("#sf-base").value = sp.base_args || "";
+    // workloads
+    $("#wl-table tbody").innerHTML = "";
+    (sp.workloads && sp.workloads.length ? sp.workloads : [{ kind: "pg", n_prompt: 512, n_gen: 128 }])
+      .forEach(w => addWl(w.kind, w.n_prompt, w.n_gen));
+    // dimensions
+    $("#dim-table tbody").innerHTML = "";
+    (sp.dimensions && sp.dimensions.length ? sp.dimensions : [])
+      .forEach(d => addDim(d.name || "", d.args || "", d.values || ""));
+    $("#sf-reps").value = sp.repetitions ?? 3;
+    $("#sf-warmup").checked = sp.warmup !== false;
+    $("#sf-cooldown").value = sp.cooldown_s ?? 2;
+    $("#sf-startup").value = sp.startup_timeout_s ?? 300;
+    $("#plan-preview").textContent = "";
+    $('[data-tab="new"]').click();
+  } catch (e) { alert(e.message); }
 }
 function progressCard(s) {
   const pr = s.progress || {};
@@ -90,24 +122,33 @@ function addWl(kind = "pg", pp = 512, tg = 128) {
   tr.querySelector(".wl-kind").value = kind;
   $("#wl-table tbody").appendChild(tr);
 }
+function addModel(path = "") {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td><input class="model-path" value="${esc(path)}" placeholder="/models/Qwen2.5-7B-Q4_K_M.gguf"></td>
+    <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
+  $("#models-table tbody").appendChild(tr);
+}
 function addDim(name = "", args = "", values = "") {
   const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input class="dim-name" value="${esc(name)}" placeholder="numa"></td>
-    <td><input class="dim-args" value="${esc(args)}" placeholder="empty = --numa value"></td>
-    <td><input class="dim-values" value="${esc(values)}" placeholder="distribute,isolate,numactl"></td>
+  tr.innerHTML = `<td><input class="dim-name" value="${esc(name)}" placeholder="flash-attn"></td>
+    <td><input class="dim-args" value="${esc(args)}" placeholder="empty = --flash-attn value"></td>
+    <td><input class="dim-values" value="${esc(values)}" placeholder="on,off,auto"></td>
     <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
   $("#dim-table tbody").appendChild(tr);
 }
 $("#wl-add").onclick = () => addWl();
 $("#dim-add").onclick = () => addDim();
+$("#models-add").onclick = () => addModel();
 
 function formSpec() {
   // NOTE: never read fields via form.<name> — "name" collides with the
   // HTMLFormElement.name built-in. Always use explicit ids.
+  const models = $$("#models-table tbody tr").map(tr => $(".model-path", tr).value.trim()).filter(Boolean);
   return {
     name: $("#sf-name").value.trim(),
     engine: $("#sf-engine").value,
-    model: $("#sf-model").value.trim(),
+    model: models[0] || "",
+    models: models,
     base_args: $("#sf-base").value.trim(),
     repetitions: +$("#sf-reps").value || 3,
     warmup: $("#sf-warmup").checked,
@@ -314,13 +355,48 @@ $("#engine-form").onsubmit = async ev => {
 };
 async function deleteEngine(name) { if (confirm(`Delete engine ${name}?`)) { await api(`/api/engines/${encodeURIComponent(name)}`, { method: "DELETE" }); renderEngines(); } }
 
-/* ---------- variant logs ---------- */
-async function showLog(vid, label) {
-  $("#log-title").textContent = `Variant ${vid}: ${label}`;
-  $("#log-body").textContent = await (await fetch(`/api/variants/${vid}/log`)).text();
+/* ---------- logs (one place for all server output) ---------- */
+let currentLogId = null;
+let currentLogTimer = null;
+async function renderLogs() {
+  let rows;
+  try { rows = await api("/api/logs"); } catch { return; }
+  const el = $("#log-list");
+  if (!rows.length) { el.innerHTML = `<div class="card">No logs yet — run a sweep first.</div>`; return; }
+  const isLive = r => r.status === "starting" || r.status === "measuring";
+  el.innerHTML = `<table><thead><tr>
+      <th>Sweep</th><th>Variant</th><th>Status</th><th>Started</th><th>Size</th><th></th>
+    </tr></thead><tbody>` +
+    rows.map(r => `<tr>
+      <td>${r.sweep_id}: ${esc(r.sweep_name)}</td>
+      <td>${esc(r.label)}</td>
+      <td><span class="badge ${esc(r.status)}">${esc(r.status)}</span></td>
+      <td class="hint">${esc(r.started_at || "")}</td>
+      <td class="hint">${r.log_bytes ? (r.log_bytes/1024).toFixed(1) + " KB" : "—"}</td>
+      <td><button class="small ghost" onclick="showLog(${r.id}, '${esc(r.sweep_name)} · ${esc(r.label)}', ${isLive(r)})">View</button></td>
+    </tr>`).join("") + "</tbody></table>";
+}
+async function showLog(vid, label, live = false) {
+  currentLogId = vid;
+  clearInterval(currentLogTimer);
+  $("#log-title").textContent = `Log: ${label}`;
+  await refreshLog();
+  if (live) currentLogTimer = setInterval(refreshLog, 2000);
+  $("#log-download").style.display = "inline";
+  $("#log-download").href = `/api/variants/${vid}/log`;
   $("#log-modal").classList.remove("hidden");
 }
-$("#log-close").onclick = () => $("#log-modal").classList.add("hidden");
+async function refreshLog() {
+  if (currentLogId == null) return;
+  try { $("#log-body").textContent = await (await fetch(`/api/variants/${currentLogId}/log`)).text(); }
+  catch {}
+}
+$("#log-refresh").onclick = refreshLog;
+$("#log-close").onclick = () => {
+  $("#log-modal").classList.add("hidden");
+  clearInterval(currentLogTimer);
+  currentLogId = null;
+};
 
 /* ---------- sweep detail with variant table + logs ---------- */
 async function renderSweepsWithVariants() { await renderSweeps(); }
@@ -341,6 +417,7 @@ async function sweepDetail(id) {
 }
 
 /* init */
+addModel();
 addWl("pg", 512, 128);
 addDim();
 renderSweeps();
