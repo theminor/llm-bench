@@ -245,6 +245,13 @@ function heatColor(t) {
   }
   return `rgba(${r},${g},${b},0.28)`;
 }
+// Render the light markdown the backend uses (**bold**) as HTML.
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+let glossary = null;
+async function loadGlossary() {
+  if (!glossary) { try { glossary = await api("/api/glossary"); } catch { glossary = []; } }
+  return glossary;
+}
 let chart = null;
 
 async function renderResults() {
@@ -252,6 +259,8 @@ async function renderResults() {
   if (!ids.length) { $("#result-body").innerHTML = ""; return; }
   const rows = await api(`/api/results?sweep_ids=${ids.join(",")}`);
   const qs = ids.join(",");
+  const recs = await api(`/api/results/recommend?sweep_ids=${qs}`).catch(() => []);
+  const gl = await loadGlossary();
   // Per-metric min/max across all rows, for the good/bad color gradient.
   const ranges = {};
   for (const [k] of METRICS) {
@@ -266,6 +275,16 @@ async function renderResults() {
     const t = m[2] === 1 ? (v - lo) / (hi - lo) : (hi - v) / (hi - lo);
     return ` style="background:${heatColor(t)}"`;
   };
+  const recHtml = recs.length ? `
+    <div class="card rec-card">
+      <h3>Best per workload <span class="hint">— fastest by total request time, with caveats</span></h3>
+      ${recs.map(rec => `
+        <div class="rec-wl">
+          <div><b>${esc(rec.workload)}:</b> ${esc(rec.main)}${rec.main_value != null ? ` <span class="hint">— ${fmt(rec.main_value, 1)} ${esc(rec.main_unit)}</span>` : ""}</div>
+          ${rec.caveats.map(c => `<div class="rec-caveat">⚠ ${md(c)}</div>`).join("")}
+          ${rec.unstable.length ? `<div class="rec-caveat warn">◦ high run-to-run variance in: ${rec.unstable.map(esc).join(", ")} — more repetitions would firm this up.</div>` : ""}
+        </div>`).join("")}
+    </div>` : "";
   $("#result-body").innerHTML = `
     <div class="card">
       <h3>Export</h3>
@@ -277,6 +296,7 @@ async function renderResults() {
         <a href="/api/export/sql?sweep_ids=${qs}"><button class="small ghost">⬇ SQL (SQLite)</button></a>
       </div>
     </div>
+    ${recHtml}
     <div class="card">
       <label>Chart metric
         <select id="chart-metric">${METRICS.map(([k, h]) => `<option value="${k}">${h}</option>`).join("")}</select>
@@ -302,7 +322,12 @@ async function renderResults() {
         <span class="swatch" style="background:${heatColor(0)}"></span> worst.
         t/s columns reward higher; latency columns reward lower.</p>
       ${rows.some(r => r.errors) ? `<p class="hint">⚠ Some samples errored — see variant logs on the sweep page.</p>` : ""}
-    </div>`;
+    </div>
+    ${gl.length ? `<details class="card glossary">
+      <summary>How to read these numbers</summary>
+      ${gl.map(([k, v]) => `<div class="gloss-item"><b>${esc(k)}</b> — ${esc(v)}</div>`).join("")}
+    </details>` : ""}
+  `;
   const draw = () => drawChart(rows);
   $("#chart-metric").onchange = draw;
   draw();
@@ -365,7 +390,8 @@ async function renderEngines() {
     <div class="card" style="display:flex;justify-content:space-between;align-items:center">
       <div><b>${esc(e.name)}</b><br>
         <span class="pill">${esc(e.executable)} ${esc((e.args || []).join(" "))}</span><br>
-        <span class="hint">${esc(e.note || "")}</span></div>
+        <span class="hint">${esc(e.note || "")}</span>
+        ${e.docs ? ` <a class="doc-link" href="${esc(e.docs)}" target="_blank" rel="noopener">argument docs ↗</a>` : ""}</div>
       <div style="display:flex;gap:8px">
         <button class="small ghost" onclick="checkEngine('${esc(e.name)}')">Check</button>
         <button class="small ghost" onclick="editEngine('${esc(e.name)}')">Edit</button>
@@ -391,6 +417,7 @@ function engineFormFill(e = {}) {
   $("#ef-modelreq").checked = e.model_required !== false;
   $("#ef-env").value = e.env && Object.keys(e.env).length ? JSON.stringify(e.env, null, 1) : "";
   $("#ef-headers").value = e.headers && Object.keys(e.headers).length ? JSON.stringify(e.headers, null, 1) : "";
+  $("#ef-docs").value = e.docs || "";
   $("#ef-note").value = e.note || "";
 }
 async function editEngine(name) {
@@ -423,6 +450,7 @@ $("#engine-form").onsubmit = async ev => {
       model_required: $("#ef-modelreq").checked,
       env: JSON.parse($("#ef-env").value.trim() || "{}"),
       headers: JSON.parse($("#ef-headers").value.trim() || "{}"),
+      docs: $("#ef-docs").value.trim(),
       note: $("#ef-note").value.trim(),
     };
     if (!eng.name) throw new Error("Name is required");

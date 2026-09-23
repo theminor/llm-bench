@@ -44,12 +44,14 @@ pip install -r requirements.txt
 python run.py --port 8090            # then open http://127.0.0.1:8090
 ```
 
-The **Engines** tab ships with presets for `llama-server` and `vllm serve`.
-An engine is deliberately *just an executable + argument template*:
-`{model}` and `{port}` are substituted, and every other argument you sweep is
-passed through verbatim, so any current or future engine flag works with zero
-code changes. If your server needs auth, put the header (e.g.
-`{"Authorization": "Bearer ..."}`) in the engine definition.
+The **Engines** tab ships with presets for `llama-server`, `vllm serve`,
+KoboldCpp, Ollama, SGLang, and Hugging Face TGI. An engine is deliberately *just
+an executable + argument template*: `{model}` and `{port}` are substituted (in
+args **and** env vars), and every other argument you sweep is passed through
+verbatim, so any current or future engine flag works with zero code changes. If
+your server needs auth, put the header (e.g. `{"Authorization": "Bearer ..."}`)
+in the engine definition. Each engine can carry a **docs link** to its argument
+reference, shown in the UI and in Markdown exports.
 
 ## Defining a sweep
 
@@ -94,10 +96,16 @@ charts) and exports:
   best and worst variants are obvious at a glance (t/s columns reward higher;
   latency columns reward lower). The chart draws each bar's mean with
   **±1 stddev whiskers** showing the spread of the repeated runs.
+* A **"Best per workload" recommendation** picks the fastest variant by total
+  request time and calls out the caveats that matter: when the fastest-on-
+  average has much worse **tail latency** (ITL p99) than a consistent rival,
+  when decode-speed and prefill-speed winners disagree, and when a variant shows
+  **high run-to-run variance** (needs more reps). A **"How to read these
+  numbers"** glossary explains every column.
 * **Markdown** — a human-readable summary (`/api/export/markdown?sweep_ids=1,2`)
-  for one or many sweeps: environment, models, dimensions, base env, per-variant
-  mean ± stddev, best-wins notes. Perfect for posting results back where you
-  found the idea.
+  for one or many sweeps: environment, engine docs link, models, dimensions,
+  base env, per-variant mean ± stddev, the recommendation, and the glossary.
+  Perfect for posting results back where you found the idea.
 * CSV / JSON — aggregated metrics for further analysis
 * SQL — `CREATE TABLE llm_bench` + inserts, pipe into `sqlite3` (llama-bench style)
 

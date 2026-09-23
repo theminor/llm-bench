@@ -210,6 +210,10 @@
         <textarea id="ef-headers" rows="2" placeholder='{"Authorization": "Bearer secret"}'></textarea>
         <span class="hint">Sent with every measurement request — e.g. <code>--api-key</code> protection via
         <code>Authorization</code>.</span></label>
+      <label>Docs link
+        <input id="ef-docs" placeholder="https://… (where to look up all of this engine's arguments)">
+        <span class="hint">Shown next to the engine and in Markdown exports, so you can look up any
+        flag while building a sweep. E.g. the llama.cpp server README lists every <code>llama-server</code> option.</span></label>
       <label>Note
         <input id="ef-note">
         <span class="hint">Free text — build version, host, anything worth remembering.</span></label>

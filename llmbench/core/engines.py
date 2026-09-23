@@ -36,6 +36,7 @@ def builtin_presets() -> list[dict[str, Any]]:
             "timing": "llamacpp",
             "headers": {},
             "env": {},
+            "docs": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
             "note": "llama.cpp HTTP server. Any llama-server flag can be swept.",
         },
         {
@@ -48,7 +49,65 @@ def builtin_presets() -> list[dict[str, Any]]:
             "timing": "none",
             "headers": {},
             "env": {},
+            "docs": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
             "note": "vLLM OpenAI-compatible server ({model} = model name or path).",
+        },
+        {
+            "name": "KoboldCpp",
+            "executable": "koboldcpp",
+            "args": ["-m {model}", "--port {port}", "--device cuda"],
+            "ready_path": "/health",
+            "ready_timeout_s": 300.0,
+            "model_required": True,
+            "timing": "llamacpp",
+            "headers": {},
+            "env": {},
+            "docs": "https://github.com/LostRuins/koboldcpp",
+            "note": "Single-binary GGUF server, OpenAI-compatible. Drop --device cuda for CPU; "
+                   "flags vary a bit between versions — verify for yours.",
+        },
+        {
+            "name": "Ollama",
+            "executable": "ollama",
+            "args": ["serve"],
+            "ready_path": "/v1/models",
+            "ready_timeout_s": 120.0,
+            "model_required": False,
+            "timing": "none",
+            "headers": {},
+            "env": {"OLLAMA_HOST": "127.0.0.1:{port}"},
+            "docs": "https://github.com/ollama/ollama/blob/main/docs/openai.md",
+            "note": "Runs `ollama serve` per variant on a free port (model comes from the sweep's "
+                   "Models field). `ollama pull <model>` first. For per-variant tuning, sweep "
+                   "OLLAMA_* / num_gpu as env dimensions. If a system Ollama already runs, this "
+                   "port-bound instance is independent.",
+        },
+        {
+            "name": "SGLang",
+            "executable": "python3",
+            "args": ["-m sglang.launch_server", "--model-path {model}",
+                     "--host 127.0.0.1", "--port {port}"],
+            "ready_path": "/health",
+            "ready_timeout_s": 600.0,
+            "model_required": True,
+            "timing": "none",
+            "headers": {},
+            "env": {},
+            "docs": "https://docs.sglang.ai/backend/openai_api_compatibility.html",
+            "note": "Fast local server, OpenAI-compatible. {model} = HF repo id or local dir.",
+        },
+        {
+            "name": "TGI (Hugging Face)",
+            "executable": "text-generation-server",
+            "args": ["--model-id {model}", "--host 127.0.0.1", "--port {port}"],
+            "ready_path": "/health",
+            "ready_timeout_s": 600.0,
+            "model_required": True,
+            "timing": "none",
+            "headers": {},
+            "env": {},
+            "docs": "https://huggingface.co/docs/text-generation-inference/conceptual/openai",
+            "note": "HF Text Generation Inference; OpenAI-compatible on /v1/completions.",
         },
     ]
 
@@ -64,6 +123,7 @@ class EngineProfile:
     timing: str = "llamacpp"  # "llamacpp" | "none"
     headers: dict[str, str] = field(default_factory=dict)
     env: dict[str, str] = field(default_factory=dict)
+    docs: str = ""  # link to the engine's argument reference
     note: str = ""
 
     @staticmethod
@@ -78,6 +138,7 @@ class EngineProfile:
             timing=str(d.get("timing", "llamacpp")),
             headers={str(k): str(v) for k, v in d.get("headers", {}).items()},
             env={str(k): str(v) for k, v in d.get("env", {}).items()},
+            docs=str(d.get("docs", "")),
             note=str(d.get("note", "")),
         )
 
@@ -135,10 +196,14 @@ class ServerProcess:
 
     @property
     def merged_env(self) -> dict[str, str]:
-        """Full env the engine process runs with: process < engine < sweep."""
+        """Full env the engine process runs with: process < engine < sweep.
+
+        Env values support the same {port} / {model} placeholders as the args.
+        """
         env = dict(os.environ)
-        env.update(self.profile.env)
-        env.update(self.extra_env)
+        for src in (self.profile.env, self.extra_env):
+            for k, v in src.items():
+                env[str(k)] = str(v).replace("{port}", str(self.port)).replace("{model}", self.model)
         return env
 
     async def start(self) -> None:

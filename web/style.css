@@ -55,3 +55,15 @@ ul.workloads-help li { margin: 5px 0; }
 table.rows select { width: 100%; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 2px; border: 1px solid rgba(255,255,255,.15); }
 .chart-caption { color: var(--muted); font-size: 12px; margin: 6px 2px 0; }
+/* Separate a field's help text onto its own line under the input. */
+label .hint { display: block; margin-top: 4px; }
+label.checkbox .hint { display: inline; margin-top: 0; }
+/* Recommendation + glossary */
+.rec-card .rec-wl { margin: 8px 0; padding: 10px 12px; background: #0b0e11; border: 1px solid var(--line); border-radius: 6px; }
+.rec-caveat { color: var(--warn); font-size: 12.5px; margin-top: 5px; line-height: 1.4; }
+.rec-caveat.warn { color: var(--muted); }
+.glossary summary { cursor: pointer; font-weight: 600; }
+.gloss-item { margin: 7px 0; font-size: 13px; line-height: 1.45; }
+.gloss-item b { color: var(--fg); }
+a.doc-link { color: var(--accent); text-decoration: none; font-size: 12px; }
+a.doc-link:hover { text-decoration: underline; }

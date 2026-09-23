@@ -42,9 +42,17 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
 
     @app.on_event("startup")
     def seed() -> None:
-        if not db.list_engines():
-            for preset in builtin_presets():
+        # Idempotent: add any presets not present yet, and backfill a missing
+        # docs link on known presets — without overwriting fields the user edited.
+        existing = {e["name"]: e for e in db.list_engines()}
+        for preset in builtin_presets():
+            name = preset["name"]
+            if name not in existing:
                 db.upsert_engine(preset)
+            elif preset.get("docs") and not existing[name].get("docs"):
+                e = dict(existing[name])
+                e["docs"] = preset["docs"]
+                db.upsert_engine(e)
         for s in db.list_sweeps():
             if s["status"] == "running":
                 db.set_sweep_status(s["id"], "interrupted")
@@ -192,6 +200,15 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
     @app.get("/api/results")
     def results(sweep_ids: str):
         return report.aggregate(db, _parse_ids(sweep_ids))
+
+    @app.get("/api/results/recommend")
+    def results_recommend(sweep_ids: str):
+        """Per-workload 'best + caveats' to help interpret the table."""
+        return report.recommend(db, _parse_ids(sweep_ids))
+
+    @app.get("/api/glossary")
+    def glossary():
+        return report.GLOSSARY
 
     @app.get("/api/export/csv")
     def export_csv(sweep_ids: str):

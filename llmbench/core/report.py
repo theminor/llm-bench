@@ -28,6 +28,24 @@ METRICS: list[tuple[str, str]] = [
 SERVER_METRICS = {"pp_tps": "pp_tps_server", "tg_tps": "tg_tps_server"}
 CLIENT_METRICS = {"pp_tps": "pp_tps_client", "tg_tps": "tg_tps_client"}
 
+# Human-readable explanation of each column, in the order they appear.
+GLOSSARY: list[tuple[str, str]] = [
+    ("Prefill t/s", "How fast the engine reads/encodes the input prompt. Higher is better. "
+                    "This is what makes the first token wait on a long chat."),
+    ("Decode t/s", "How fast tokens are produced once generation starts — the \"typing speed\" "
+                   "you actually watch. Higher is better."),
+    ("TTFT ms", "Time to first token. Lower is better. Grows with prompt length / slow prefill."),
+    ("E2E ms", "Total time for the whole request (prefill + every generated token). Lower is "
+               "better. The best single number for \"how long did this request take\"."),
+    ("ITL p50 ms", "Median gap between consecutive tokens (inter-token latency). Lower is better. "
+                   "This is the typical \"time between letters\"."),
+    ("ITL p90/p99 ms", "The 90th/99th-percentile token gap — i.e. the worst cases. Lower is better. "
+                       "A big jump from p50 to p99 (or a large ±) means spiky output: the occasional "
+                       "stutter you feel while reading."),
+    ("± (std dev)", "Run-to-run spread across the repetitions. Small ± = stable, trust the number. "
+                    "Large ± = noisy; the mean is less reliable and more reps would help."),
+]
+
 
 def aggregate(db: Database, sweep_ids: list[int]) -> list[dict[str, Any]]:
     """Rows of {sweep_id, variant_id, label, workload, <metric>_mean/std/n}."""
@@ -93,6 +111,9 @@ def to_markdown(db: Database, sweep_ids: list[int], title: str = "") -> str:
         out.append("")
         out.append(f"- **Status:** {sweep['status']}  ")
         out.append(f"- **Engine:** `{spec.get('engine', '')}`  ")
+        eng = db.get_engine(spec.get("engine", ""))
+        if eng and eng.get("docs"):
+            out.append(f"- **Engine argument docs:** <{eng['docs']}>  ")
         # Model: prefer the (possibly multi) models list, fall back to legacy field.
         model_list = spec.get("models") or ([spec["model"]] if spec.get("model") else [])
         model_short = [m.rstrip("/").rsplit("/", 1)[-1] for m in model_list]
@@ -143,13 +164,12 @@ def to_markdown(db: Database, sweep_ids: list[int], title: str = "") -> str:
         if note:
             out.append("")
             out.append(note)
-        winners = _winners(rows)
-        if winners:
+        recs = recommendations(agg)
+        if recs:
             out.append("")
-            out.append("**Best per workload** (by decode t/s, then prefill t/s):")
-            for wl, best in winners.items():
-                out.append(f"- {wl}: **{best}**")
+            out.extend(recommendation_markdown(recs))
         out.append("")
+    out.extend(glossary_markdown())
     return "\n".join(out)
 
 
@@ -162,18 +182,110 @@ def _metric_source_note(rows: list[dict]) -> str:
     return "_Prefill/decode t/s are client-measured (HTTP-level)._".rstrip("_") + "_"
 
 
-def _winners(rows: list[dict]) -> dict[str, str]:
-    best: dict[str, tuple[float, float, str]] = {}
-    for r in rows:
-        wl = r["workload"]
-        score = (
-            r.get("tg_tps_mean") or 0.0,
-            r.get("pp_tps_mean") or 0.0,
-            r["label"],
+def _best_by(rows: list[dict], key: str, mode: str) -> dict | None:
+    """Row with the best (max/min) mean for a metric; None if no data."""
+    cands = [r for r in rows if r.get(f"{key}_mean") is not None]
+    if not cands:
+        return None
+    return (max(cands, key=lambda r: r[f"{key}_mean"]) if mode == "max"
+            else min(cands, key=lambda r: r[f"{key}_mean"]))
+
+
+def _cv(r: dict, key: str) -> float | None:
+    """Coefficient of variation (std/mean) — a spread that's comparable across metrics."""
+    m, s = r.get(f"{key}_mean"), r.get(f"{key}_std")
+    if not m or s is None:
+        return None
+    return s / m
+
+
+def _fnum(v: float | None, d: int = 1) -> str:
+    return f"{v:.{d}f}" if v is not None else "?"
+
+
+def recommend_for_workload(rows: list[dict], wl: str) -> dict | None:
+    """Per-workload 'what's best and what to watch out for'."""
+    wr = [r for r in rows if r["workload"] == wl]
+    if not wr:
+        return None
+    dec = _best_by(wr, "tg_tps", "max")
+    pre = _best_by(wr, "pp_tps", "max")
+    e2e = _best_by(wr, "e2e_ms", "min")
+    tail = _best_by(wr, "itl_p99_ms", "min")
+    main = e2e or dec
+    if main is None:
+        return None
+    caveats: list[str] = []
+    # Tail-latency caveat: the fastest-on-average isn't the most consistent.
+    if e2e and tail and e2e["label"] != tail["label"] and tail.get("itl_p99_ms_mean"):
+        m_p99 = e2e.get("itl_p99_ms_mean")
+        t_p99 = tail.get("itl_p99_ms_mean")
+        m_cv = _cv(e2e, "itl_p99_ms") or 0
+        if m_p99 and (m_p99 >= 1.4 * t_p99 or m_cv > 0.15):
+            m_std = e2e.get("itl_p99_ms_std")
+            caveats.append(
+                f"but **{e2e['label']}** has much worse tail latency (ITL p99 {_fnum(m_p99)} ms"
+                + (f" ± {_fnum(m_std)}" if m_std else "")
+                + f") than **{tail['label']}** ({_fnum(t_p99)} ms). If you need steady per-token "
+                  f"latency, prefer **{tail['label']}**; pick **{e2e['label']}** only for maximum "
+                  f"average speed when occasional lag spikes are acceptable."
+            )
+    # Prefill vs decode trade-off.
+    if pre and dec and pre["label"] != dec["label"] and pre.get("pp_tps_mean") and dec.get("tg_tps_mean"):
+        caveats.append(
+            f"trade-off: **{dec['label']}** decodes fastest ({_fnum(dec['tg_tps_mean'])} t/s) while "
+            f"**{pre['label']}** prefills fastest ({_fnum(pre['pp_tps_mean'])} t/s) — choose "
+            f"**{pre['label']}** for long prompts, **{dec['label']}** for long generations."
         )
-        if wl not in best or (score[0], score[1]) > (best[wl][0], best[wl][1]):
-            best[wl] = score
-    return {wl: b[2] for wl, b in best.items() if b[0] or b[1]}
+    unstable = sorted({r["label"] for r in wr
+                       if (_cv(r, "e2e_ms") or 0) > 0.15 or (_cv(r, "itl_p99_ms") or 0) > 0.15})
+    return {
+        "workload": wl,
+        "main": main["label"],
+        "main_by": "total time (E2E)" if e2e else "decode t/s",
+        "main_value": (e2e.get("e2e_ms_mean") if e2e else dec.get("tg_tps_mean")),
+        "main_unit": "ms" if e2e else "t/s",
+        "winners": {
+            "tg_tps": dec["label"] if dec else None,
+            "pp_tps": pre["label"] if pre else None,
+            "e2e_ms": e2e["label"] if e2e else None,
+            "itl_p99_ms": tail["label"] if tail else None,
+        },
+        "caveats": caveats,
+        "unstable": unstable,
+    }
+
+
+def recommendations(agg: list[dict]) -> list[dict]:
+    wls = list(dict.fromkeys(r["workload"] for r in agg))
+    return [x for x in (recommend_for_workload(agg, w) for w in wls) if x]
+
+
+def recommend(db: Database, sweep_ids: list[int]) -> list[dict]:
+    return recommendations(aggregate(db, sweep_ids))
+
+
+def recommendation_markdown(recs: list[dict]) -> list[str]:
+    out: list[str] = []
+    out.append("**Best per workload** (fastest by total request time):")
+    for rec in recs:
+        line = f"- {rec['workload']}: **{rec['main']}**"
+        if rec.get("main_value") is not None:
+            line += f" — {_fnum(rec['main_value'])} {rec['main_unit']}"
+        out.append(line)
+        for c in rec["caveats"]:
+            out.append(f"  - {c}")
+        if rec["unstable"]:
+            out.append(f"  - _high run-to-run variance in: {', '.join(rec['unstable'])} — "
+                       f"more repetitions would firm this up._")
+    return out
+
+
+def glossary_markdown() -> list[str]:
+    out = ["", "_**Reading the numbers:**_", ""]
+    for name, desc in GLOSSARY:
+        out.append(f"- **{name}** — {desc}")
+    return out
 
 
 def to_csv(agg: list[dict]) -> str:
