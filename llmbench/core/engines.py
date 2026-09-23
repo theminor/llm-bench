@@ -24,6 +24,9 @@ _LLAMA_PP_RE = re.compile(r"prompt eval time\s*=\s*([\d.]+)\s*ms\s*/\s*(\d+)\s*t
 _LLAMA_TG_RE = re.compile(r"eval time\s*=\s*([\d.]+)\s*ms\s*/\s*(\d+)\s*tokens.*?([\d.]+)\s*tokens per second")
 
 
+DEFAULT_ENGINE = "llama.cpp (llama-server)"
+
+
 def builtin_presets() -> list[dict[str, Any]]:
     return [
         {

@@ -77,3 +77,15 @@ class TestPresets:
         names = {p["name"] for p in builtin_presets()}
         for want in ("llama.cpp (llama-server)", "vLLM", "KoboldCpp", "Ollama", "SGLang"):
             assert want in names
+
+
+class TestDefaultEngineOrdering:
+    def test_default_engine_is_first_in_api(self, tmp_path):
+        from fastapi.testclient import TestClient
+        from llmbench.app import create_app
+        from llmbench.core.engines import DEFAULT_ENGINE
+        app, _, _ = create_app(tmp_path / "data")
+        with TestClient(app) as client:  # startup seeds the presets
+            names = [e["name"] for e in client.get("/api/engines").json()]
+        assert names[0] == DEFAULT_ENGINE
+

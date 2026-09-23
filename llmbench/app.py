@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .core import report
 from .core.db import Database
-from .core.engines import EngineProfile, builtin_presets
+from .core.engines import DEFAULT_ENGINE, EngineProfile, builtin_presets
 from .core.runner import Runner
 from .core.spec import SweepSpec, plan_variants
 from .core.system import snapshot
@@ -60,7 +60,11 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
     # ---- engines -----------------------------------------------------
     @app.get("/api/engines")
     def engines_list():
-        return db.list_engines()
+        # Keep the default engine first so it's the obvious choice in the
+        # New-sweep form and the top of the Engines list.
+        engines = db.list_engines()
+        engines.sort(key=lambda e: 0 if e.get("name") == DEFAULT_ENGINE else 1)
+        return engines
 
     @app.get("/api/engine-presets")
     def engine_presets():

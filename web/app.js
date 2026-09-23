@@ -210,20 +210,27 @@ $("#sweep-form").onsubmit = async ev => {
 };
 async function loadEngineSelect() {
   const engines = await api("/api/engines");
-  $("#sf-engine").innerHTML = engines.map(e => `<option>${esc(e.name)}</option>`).join("");
+  const cur = $("#sf-engine").value;
+  $("#sf-engine").innerHTML = engines.map(e => `<option value="${esc(e.name)}">${esc(e.name)}</option>`).join("");
+  // Preserve the current selection across reloads (e.g. when cloning a sweep
+  // and the tab switch re-populates the list).
+  if (cur && [...$("#sf-engine").options].some(o => o.value === cur)) $("#sf-engine").value = cur;
 }
 
 /* ---------- results ---------- */
 let selectedSweeps = new Set();
 async function renderResultPicker(preselect) {
+  if (preselect != null) selectedSweeps.add(preselect);
   const sweeps = await api("/api/sweeps");
   const el = $("#result-pick");
+  // Checkboxes reflect the actual selection so the view never drifts from it.
   el.innerHTML = sweeps.map(s =>
-    `<label class="checkbox"><input type="checkbox" value="${s.id}" ${preselect === s.id ? "checked" : ""}>
+    `<label class="checkbox"><input type="checkbox" value="${s.id}" ${selectedSweeps.has(s.id) ? "checked" : ""}>
       #${s.id} ${esc(s.name)} <span class="badge ${esc(s.status)}">${esc(s.status)}</span></label>`).join("")
     || `<em>No sweeps.</em>`;
   $$("input", el).forEach(cb => cb.onchange = () => { cb.checked ? selectedSweeps.add(+cb.value) : selectedSweeps.delete(+cb.value); renderResults(); });
-  if (preselect) { selectedSweeps.add(preselect); renderResults(); }
+  // Refresh the results to exactly match what is checked (on every visit).
+  renderResults();
 }
 function selectSweep(id) { const cb = $(`#result-pick input[value="${id}"]`); if (cb) { cb.checked = true; cb.onchange(); } }
 
