@@ -274,12 +274,20 @@ async function renderResults() {
     const vals = rows.map(r => r[`${k}_mean`]).filter(v => v != null);
     if (vals.length) ranges[k] = [Math.min(...vals), Math.max(...vals)];
   }
+  // Color is proportional to how far a value trails the column's BEST, as a
+  // percentage of the best. A difference of HEAT_FULL_DIFF or more maps to full
+  // red; anything smaller maps to a milder color in proportion. So near-equal
+  // results stay near the same color (no forced red/green), while a genuine
+  // gap still reads as a clear color gap.
+  const HEAT_FULL_DIFF = 0.15;
   const heat = (k, v) => {
     const m = METRICS.find(x => x[0] === k);
     if (v == null || !ranges[k] || !m) return "";
     const [lo, hi] = ranges[k];
-    if (hi === lo) return ` style="background:${heatColor(0.5)}"`;
-    const t = m[2] === 1 ? (v - lo) / (hi - lo) : (hi - v) / (hi - lo);
+    const best = m[2] === 1 ? hi : lo;  // higher-is-better -> max; lower-is-better -> min
+    if (!best) return ` style="background:${heatColor(0.5)}"`;
+    const rel = Math.abs(v - best) / Math.abs(best);
+    const t = Math.max(0, 1 - rel / HEAT_FULL_DIFF);  // 1 = best (green), 0 = >=15% behind (red)
     return ` style="background:${heatColor(t)}"`;
   };
   const recHtml = recs.length ? `
@@ -324,9 +332,11 @@ async function renderResults() {
         }).join("")}
       </tr>`).join("")}</tbody></table>
       <p class="hint">Cell color per column:
-        <span class="swatch" style="background:${heatColor(1)}"></span> best ·
-        <span class="swatch" style="background:${heatColor(0.5)}"></span> middle ·
-        <span class="swatch" style="background:${heatColor(0)}"></span> worst.
+        <span class="swatch" style="background:${heatColor(1)}"></span> best, fading through
+        <span class="swatch" style="background:${heatColor(0.5)}"></span> toward
+        <span class="swatch" style="background:${heatColor(0)}"></span> as a value trails the best by
+        a larger percentage (≈15%+ behind = full red). Near-equal values get near-equal colors, so a
+        strong color gap means a real difference — a faint one means the factor barely matters.
         t/s columns reward higher; latency columns reward lower.</p>
       ${rows.some(r => r.errors) ? `<p class="hint">⚠ Some samples errored — see variant logs on the sweep page.</p>` : ""}
     </div>
