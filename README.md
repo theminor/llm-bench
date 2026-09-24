@@ -14,7 +14,9 @@ library in-process.
 For every combination ("variant") of the parameters you choose:
 
 1. llm-bench **launches the engine executable** you configured, with your base
-   args + the variant's args (e.g. `llama-server -m ... --flash-attn on`).
+   args + the variant's args (e.g. `llama-server -m ... --flash-attn on`) and the
+   variant's environment (base env + any env-dimension values, on top of the
+   engine's own defaults).
 2. Polls its **readiness endpoint** until it's up (`/health`).
 3. Sends a **warmup** request, then N timed requests per workload.
 4. Kills the server, cools down, moves to the next variant (strictly
@@ -44,14 +46,52 @@ pip install -r requirements.txt
 python run.py --port 8090            # then open http://127.0.0.1:8090
 ```
 
-The **Engines** tab ships with presets for `llama-server`, `vllm serve`,
-KoboldCpp, Ollama, SGLang, and Hugging Face TGI. An engine is deliberately *just
-an executable + argument template*: `{model}` and `{port}` are substituted (in
-args **and** env vars), and every other argument you sweep is passed through
-verbatim, so any current or future engine flag works with zero code changes. If
-your server needs auth, put the header (e.g. `{"Authorization": "Bearer ..."}`)
-in the engine definition. Each engine can carry a **docs link** to its argument
-reference, shown in the UI and in Markdown exports.
+That's it — the **Engines** tab is pre-seeded (llama.cpp first), so you can go
+straight to **New sweep**.
+
+## The UI
+
+Five tabs:
+
+* **Sweeps** — every sweep with its status and live progress. Actions: **Run**,
+  **Cancel**, **Variants** (per-variant status + logs), **Results**, **Clone**
+  (copy the whole config back into the New-sweep form), **Delete**.
+* **New sweep** — pick the engine (defaults to **llama.cpp**), the model(s),
+  base args / base env, workloads, and dimensions. **Preview plan** renders the
+  *exact* command line **and env** for the first variant before you spend GPU
+  time.
+* **Results** — tick one or more sweeps; you get a heat-mapped table, a chart
+  with ±1 stddev whiskers, a per-workload **recommendation**, a metric
+  **glossary**, and export buttons. Only the checked sweeps are shown, and the
+  view refreshes to match the checkboxes on every visit.
+* **Logs** — full stdout+stderr of every variant of every sweep, in one place
+  (newest first). A running variant's log keeps refreshing while open.
+* **Engines** — configure engines. **Check** verifies the executable resolves on
+  this machine (and prints its version).
+
+## Engines
+
+An engine is deliberately *just an executable + argument template*:
+`{model}` and `{port}` are substituted (in args **and** env vars), and every
+other argument you sweep is passed through verbatim, so any current or future
+engine flag works with zero code changes.
+
+Ship presets (llama.cpp is the default and listed first): **llama.cpp
+(`llama-server`)**, **vLLM**, **KoboldCpp**, **Ollama**, **SGLang**, and
+Hugging Face **TGI**. Each preset is a starting point — verify the executable
+path and exact flags for your install (noted on each). Two flavors:
+
+* **Model at launch** (llama.cpp, vLLM, KoboldCpp, SGLang, TGI) — `{model}` in
+  the args; the sweep's Models field is substituted in.
+* **Model per request** (Ollama) — the server is started once per variant on a
+  free port and the model name goes in the request body, so tick *Takes a
+  model* off and set the model in the sweep instead.
+
+Other per-engine fields: **ready path** + **ready timeout** (health polling), a
+**timing parser** (llama.cpp log timings vs client-only), **request headers**
+(e.g. `{"Authorization": "Bearer ..."}` for `--api-key` servers), **default env
+vars** (overridable by a sweep's base/env dimensions), and a **docs link** to
+the engine's argument reference (shown in the UI and in Markdown exports).
 
 ## Defining a sweep
 
@@ -67,8 +107,10 @@ reference, shown in the UI and in Markdown exports.
 * **Base args** (multi-line) — flags held constant across all variants; each
   line is shell-parsed.
 * **Base env vars** (multi-line `KEY=value`) — environment variables held
-  constant for every variant (e.g. pin a GPU). They override any *default* env
-  set on the engine. A bare `KEY` means value `1`.
+  constant for every variant (e.g. pin a GPU). A bare `KEY` means value `1`.
+  Env precedence, lowest to highest: the machine's environment → the engine's
+  *default* env → the sweep's **base env** → a variant's **env-dimension**
+  values, so a sweep can always override the engine's defaults.
 * **Dimensions** are swept as a cross-product. Each has a *type*, a *name* and
   *values*:
   * **arg** (default) — a command-line flag. Leave the arg template **empty**
@@ -82,6 +124,13 @@ reference, shown in the UI and in Markdown exports.
     the engine process, not the command line.
 * **Repetitions** default to 3; each repetition gets a unique prompt suffix so
   prompt/prefix caching cannot fake-inflate your numbers.
+* **Warmup** (on by default) — one untimed request per workload before
+  measuring, to pay one-time costs (CUDA graphs, caches) so the timed numbers
+  reflect steady state.
+* **Cooldown** (s) — rest between variants (after killing one server and before
+  starting the next) so thermals and memory settle.
+* **Startup timeout** (s) — how long to wait for the engine to load the model
+  and answer its health endpoint (big models on slow disks, or vLLM, need more).
 * **Preview plan** renders the *exact* command **and env** for the first
   variant, so mistakes are visible before the sweep starts.
 * **Clone** copies any finished sweep's configuration back into the New-sweep
@@ -111,7 +160,9 @@ charts) and exports:
 
 The **Logs** tab is one place for the full stdout+stderr of every variant of
 every sweep — where crashes, startup errors, and the engine's per-request
-timing lines live. A running variant's log keeps refreshing while open.
+timing lines live. Each log starts with the exact command (`$ …`) and, when a
+sweep sets env vars, an `env+ KEY=value …` line showing what that variant ran
+with. A running variant's log keeps refreshing while open.
 
 ## Running on a remote machine / Desktop Rig
 
@@ -126,7 +177,8 @@ pip install -r requirements.txt
 python run.py --host 0.0.0.0 --port 8090
 ```
 
-All state (engines, sweeps, samples, server logs) lives in `./data/`.
+All state (engines, sweeps, samples, server logs) lives in `./data/` by default;
+override the location with `--data-dir /some/path`.
 
 ## Development / tests
 
