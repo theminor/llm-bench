@@ -1,13 +1,11 @@
 # llm-bench
 
-A web tool for benchmarking **any** LLM inference engine (llama.cpp, vLLM, or
-anything else with an OpenAI-compatible HTTP API) across **any** set of
+A web tool for benchmarking any LLM inference engine (llama.cpp, vLLM, or
+anything else with an OpenAI-compatible HTTP API) across any set of
 command-line parameters.
 
-It answers the question llama-bench can't: *"does this flag people recommend on
-the internet actually make my server faster, end-to-end?"* — because it measures
-the **running server over HTTP**, exactly the way you use it, not the engine
-library in-process.
+It is designed to test the specific effect of each command-line argument/environment variable.
+It measures the **running server**, exactly the way you use it, not the engine library in-process.
 
 ## How it works
 
@@ -46,8 +44,7 @@ pip install -r requirements.txt
 python run.py --port 8090            # then open http://127.0.0.1:8090
 ```
 
-That's it — the **Engines** tab is pre-seeded (llama.cpp first), so you can go
-straight to **New sweep**.
+The **Engines** tab is pre-seeded, so you can go straight to **New sweep**, assuming you don't need to change any engine details.
 
 ## The UI
 
@@ -76,7 +73,7 @@ An engine is deliberately *just an executable + argument template*:
 other argument you sweep is passed through verbatim, so any current or future
 engine flag works with zero code changes.
 
-Ship presets (llama.cpp is the default and listed first): **llama.cpp
+Ship presets: **llama.cpp
 (`llama-server`)**, **vLLM**, **KoboldCpp**, **Ollama**, **SGLang**, and
 Hugging Face **TGI**. Each preset is a starting point — verify the executable
 path and exact flags for your install (noted on each). Two flavors:
