@@ -154,6 +154,7 @@ class Runner:
                     warm = await measure_request(
                         client, server.base_url, model,
                         prompt + " [warmup]", wl.max_tokens, wl.label, -1, headers,
+                        profile.measurement_endpoint,
                     )
                     self.db.add_sample(variant_id, sweep_id, warm.__dict__ | {"workload": wl.label, "rep": -1}, is_warmup=True)
                     samples.append(warm)
@@ -166,6 +167,7 @@ class Runner:
                     s = await measure_request(
                         client, server.base_url, model,
                         f"{prompt} [rep{rep}]", wl.max_tokens, wl.label, rep, headers,
+                        profile.measurement_endpoint,
                     )
                     if profile.timing == "llamacpp" and s.ok:
                         want_tg = wl.max_tokens > 1  # eval timing is meaningless for 1-token pp runs

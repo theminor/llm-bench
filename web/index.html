@@ -186,6 +186,10 @@
           <input id="ef-ready" value="/health">
           <span class="hint">URL path llm-bench polls until it returns HTTP 200 before measuring
           (llama.cpp and vLLM both have <code>/health</code>).</span></label>
+        <label>Measurement endpoint
+          <input id="ef-measurement" value="/v1/completions">
+          <span class="hint">Endpoint llm-bench POSTs timed requests to. Defaults to <code>/v1/completions</code>;
+          change to <code>/v1/chat/completions</code> for engines like Strata that don't support the legacy completions endpoint.</span></label>
         <label>Ready timeout s
           <input id="ef-timeout" type="number" value="300">
           <span class="hint">Max wait for the model to load before the variant is marked failed.</span></label>

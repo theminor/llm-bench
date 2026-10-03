@@ -436,6 +436,7 @@ function engineFormFill(e = {}) {
   $("#ef-headers").value = e.headers && Object.keys(e.headers).length ? JSON.stringify(e.headers, null, 1) : "";
   $("#ef-docs").value = e.docs || "";
   $("#ef-note").value = e.note || "";
+  $("#ef-measurement").value = e.measurement_endpoint || "/v1/completions";
 }
 async function editEngine(name) {
   const e = (await api("/api/engines")).find(x => x.name === name);
@@ -469,6 +470,7 @@ $("#engine-form").onsubmit = async ev => {
       headers: JSON.parse($("#ef-headers").value.trim() || "{}"),
       docs: $("#ef-docs").value.trim(),
       note: $("#ef-note").value.trim(),
+      measurement_endpoint: $("#ef-measurement").value.trim() || "/v1/completions",
     };
     if (!eng.name) throw new Error("Name is required");
     if (!eng.executable) throw new Error("Executable path is required");

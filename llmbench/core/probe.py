@@ -73,6 +73,7 @@ async def measure_request(
     workload: str,
     rep: int,
     headers: dict[str, str] | None = None,
+    measurement_endpoint: str = "/v1/completions",
 ) -> Sample:
     sample = Sample(workload=workload, rep=rep)
     payload = {
@@ -92,7 +93,7 @@ async def measure_request(
     try:
         async with client.stream(
             "POST",
-            f"{base_url}/v1/completions",
+            f"{base_url}{measurement_endpoint}",
             json=payload,
             headers=headers or {},
             timeout=httpx.Timeout(600.0),

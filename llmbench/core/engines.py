@@ -128,6 +128,7 @@ class EngineProfile:
     env: dict[str, str] = field(default_factory=dict)
     docs: str = ""  # link to the engine's argument reference
     note: str = ""
+    measurement_endpoint: str = "/v1/completions"  # endpoint for timed measurement requests
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "EngineProfile":
@@ -143,6 +144,7 @@ class EngineProfile:
             env={str(k): str(v) for k, v in d.get("env", {}).items()},
             docs=str(d.get("docs", "")),
             note=str(d.get("note", "")),
+            measurement_endpoint=str(d.get("measurement_endpoint", "/v1/completions")),
         )
 
     def render_args(self, model: str, port: int) -> list[str]:

@@ -59,3 +59,17 @@ class TestServerProcessEnv:
         s = self._server({}, {})
         # PATH always exists in the process env
         assert "PATH" in s.merged_env
+
+
+class TestMeasurementEndpoint:
+    def test_defaults_to_v1_completions(self):
+        p = EngineProfile(name="t", executable="exe")
+        assert p.measurement_endpoint == "/v1/completions"
+
+    def test_from_dict_preserves_custom(self):
+        p = EngineProfile.from_dict({"name": "t", "executable": "x", "measurement_endpoint": "/v1/chat/completions"})
+        assert p.measurement_endpoint == "/v1/chat/completions"
+
+    def test_from_dict_falls_back_for_missing(self):
+        p = EngineProfile.from_dict({"name": "t", "executable": "x"})
+        assert p.measurement_endpoint == "/v1/completions"
