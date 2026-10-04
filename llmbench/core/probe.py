@@ -128,6 +128,8 @@ async def measure_request(
                         "choices_count": len(chunk.get("choices", [])),
                         "choices": chunk.get("choices", [])[:1],  # first choice only
                     }
+                    import sys
+                    print(f"[DIAG] first SSE chunk: {json.dumps(sample.raw['_debug_sample'], default=str)[:500]}", file=sys.stderr, flush=True)
                 if chunk.get("usage"):
                     usage = chunk["usage"]
                 for choice in chunk.get("choices", []):
@@ -136,12 +138,14 @@ async def measure_request(
                     # Chat completions format (delta.content per token)
                     delta = choice.get("delta") or {}
                     delta_text = delta.get("content", "")
+                    # Strata reasoning/thinking tokens
+                    delta_reasoning = delta.get("reasoning_content", "")
                     if text:
                         now = time.perf_counter()
                         if t_first is None:
                             t_first = now
                         token_times.append(now)
-                    elif delta_text:
+                    elif delta_text or delta_reasoning:
                         now = time.perf_counter()
                         if t_first is None:
                             t_first = now

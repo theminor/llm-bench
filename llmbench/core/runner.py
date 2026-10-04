@@ -168,6 +168,11 @@ class Runner:
                         prompt + " [warmup]", wl.max_tokens, wl.label, -1, headers,
                         profile.measurement_endpoint, profile.request_format,
                     )
+                    # DEBUG: dump first SSE chunk structure to log
+                    raw_debug = warm.raw.get("_debug_sample")
+                    if raw_debug:
+                        server._log.write(f"[DIAG] warmup SSE chunk: {json.dumps(raw_debug, default=str)[:500]}\n")
+                        server._log.flush()
                     server._log.write(f"[DIAG] warmup result: ok={warm.ok}, error={warm.error}\n")
                     server._log.flush()
                     self.db.add_sample(variant_id, sweep_id, warm.__dict__ | {"workload": wl.label, "rep": -1}, is_warmup=True)
