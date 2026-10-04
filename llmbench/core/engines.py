@@ -146,6 +146,7 @@ class EngineProfile:
     docs: str = ""  # link to the engine's argument reference
     note: str = ""
     measurement_endpoint: str = "/v1/completions"  # endpoint for timed measurement requests
+    ready_pattern: str | None = None  # if set, match stdout lines instead of HTTP GET
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "EngineProfile":
@@ -162,6 +163,7 @@ class EngineProfile:
             docs=str(d.get("docs", "")),
             note=str(d.get("note", "")),
             measurement_endpoint=str(d.get("measurement_endpoint", "/v1/completions")),
+            ready_pattern=d.get("ready_pattern"),
         )
 
     def render_args(self, model: str, port: int) -> list[str]:
@@ -262,6 +264,23 @@ class ServerProcess:
 
     async def _wait_ready(self) -> None:
         deadline = time.monotonic() + self.ready_timeout_s
+        # If a ready_pattern is configured, scan stdout instead of HTTP GET
+        if self.profile.ready_pattern:
+            while time.monotonic() < deadline:
+                if self.proc and self.proc.returncode is not None:
+                    raise RuntimeError(
+                        f"engine exited early (code {self.proc.returncode}); "
+                        f"see {self.log_path}"
+                    )
+                for line in self.lines:
+                    if self.profile.ready_pattern in line:
+                        return
+                await asyncio.sleep(0.5)
+            raise TimeoutError(
+                f"engine did not print ready pattern {self.profile.ready_pattern!r} within "
+                f"{self.ready_timeout_s:.0f}s (captured {len(self.lines)} lines)"
+            )
+        # Default: HTTP polling
         url = self.base_url + self.profile.ready_path
         async with httpx.AsyncClient() as client:
             while time.monotonic() < deadline:
