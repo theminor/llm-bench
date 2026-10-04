@@ -34,7 +34,7 @@ $$(".tab").forEach(b => b.onclick = () => {
   const tab = b.dataset.tab;
   $(`#tab-${tab}`).classList.remove("hidden");
   clearInterval(pollTimer);
-  if (tab === "sweeps") { renderSweeps(); pollTimer = setInterval(renderSweeps, 1500); }
+  if (tab === "sweeps") { renderSweeps(); pollTimer = setInterval(renderSweeps, 1500); if (liveSweepId && !livePollTimer) { $("#sweep-live-output").classList.remove("hidden"); pollLiveOutput(); livePollTimer = setInterval(pollLiveOutput, 2000); } }
   if (tab === "results") renderResultPicker(pendingPreselect);
   if (tab === "logs") { renderLogs(); pollTimer = setInterval(renderLogs, 3000); }
   if (tab === "engines") renderEngines();
@@ -200,12 +200,77 @@ $("#btn-plan").onclick = async () => {
     $("#plan-preview").innerHTML = html;
   } catch (e) { $("#plan-preview").textContent = `⚠ ${e.message}`; }
 };
+let liveSweepId = null;
+let livePollTimer = null;
+let liveLogId = null;
+let liveLogTimer = null;
+
+function stopLivePoll() {
+  clearInterval(livePollTimer);
+  clearInterval(liveLogTimer);
+  liveSweepId = null;
+  liveLogId = null;
+  livePollTimer = null;
+  liveLogTimer = null;
+}
+
+async function pollLiveOutput() {
+  if (!liveSweepId) return;
+  try {
+    const s = await api(`/api/sweeps/${liveSweepId}`);
+    const pr = s.progress || {};
+    const pct = pr.total ? Math.round(100 * (pr.done || 0) / pr.total) : 0;
+    const statusText = s.status === "running" ? `Running — ${pr.done || 0}/${pr.total || "?"} variants` : s.status;
+    $("#live-output-title").textContent = `Sweep #${s.id}: ${esc(s.name)}`;
+    $("#live-output-progress").innerHTML = `<div class="progress"><div style="width:${pct}%"></div></div>
+      <div class="hint">${statusText} — ${esc(pr.variant_label || "")} ${esc(pr.workload || "")}${pr.rep != null ? ` rep ${pr.rep}` : ""} ${esc(pr.message || "")}</div>`;
+    // Track the current variant's log for live display
+    if (s.variants && s.variants.length) {
+      const currentVar = s.variants.find(v => v.status === "starting" || v.status === "measuring");
+      if (currentVar && currentVar.id !== liveLogId) {
+        liveLogId = currentVar.id;
+        clearInterval(liveLogTimer);
+        liveLogTimer = setInterval(async () => {
+          try {
+            const log = await (await fetch(`/api/variants/${liveLogId}/log`)).text();
+            $("#live-output-log").textContent = log;
+            const el = $("#live-output-log");
+            el.scrollTop = el.scrollHeight;
+          } catch {}
+        }, 2000);
+      }
+    }
+    if (s.status !== "running") {
+      stopLivePoll();
+      $("#live-output-progress").innerHTML = `<div class="hint" style="color:${s.status === "done" ? "var(--ok)" : "var(--err)"}">
+        ${s.status === "done" ? "✓ Sweep complete" : `✗ Sweep ${s.status}`}${s.progress?.message ? ` — ${esc(s.progress.message)}` : ""}</div>`;
+      $("#live-cancel-btn").classList.add("hidden");
+      setTimeout(() => { $("#sweep-live-output").classList.add("hidden"); stopLivePoll(); }, 5000);
+    }
+  } catch {}
+}
+
 $("#sweep-form").onsubmit = async ev => {
   ev.preventDefault();
   try {
     const { id } = await api("/api/sweeps", { method: "POST", body: JSON.stringify(formSpec()) });
     await api(`/api/sweeps/${id}/run`, { method: "POST" });
-    $('[data-tab="sweeps"]').click();
+    // Show live output inline instead of redirecting
+    liveSweepId = id;
+    liveLogId = null;
+    $("#sweep-live-output").classList.remove("hidden");
+    $("#live-cancel-btn").classList.remove("hidden");
+    $("#live-output-log").textContent = "Starting variant…";
+    pollLiveOutput();
+    livePollTimer = setInterval(pollLiveOutput, 2000);
+  } catch (e) { alert(e.message); }
+};
+
+$("#live-cancel-btn").onclick = async () => {
+  if (!liveSweepId) return;
+  try {
+    await api(`/api/sweeps/${liveSweepId}/cancel`, { method: "POST" });
+    $("#live-cancel-btn").classList.add("hidden");
   } catch (e) { alert(e.message); }
 };
 async function loadEngineSelect() {
@@ -429,14 +494,14 @@ function engineFormFill(e = {}) {
   $("#ef-executable").value = e.executable || "";
   $("#ef-args").value = (e.args || ["--model", "{model}", "--host", "127.0.0.1", "--port", "{port}"]).join("\n");
   $("#ef-ready").value = e.ready_path || "/health";
-  $("#ef-timeout").value = e.ready_timeout_s || 300;
+  $("#ef-timeout").value = e.ready_timeout_s != null ? e.ready_timeout_s : 300;
   $("#ef-timing").value = e.timing || "llamacpp";
   $("#ef-modelreq").checked = e.model_required !== false;
   $("#ef-env").value = e.env && Object.keys(e.env).length ? JSON.stringify(e.env, null, 1) : "";
   $("#ef-headers").value = e.headers && Object.keys(e.headers).length ? JSON.stringify(e.headers, null, 1) : "";
   $("#ef-docs").value = e.docs || "";
   $("#ef-note").value = e.note || "";
-  $("#ef-measurement").value = e.measurement_endpoint || "/v1/completions";
+  $("#ef-measurement").value = e.measurement_endpoint != null && e.measurement_endpoint !== "" ? e.measurement_endpoint : "/v1/completions";
 }
 async function editEngine(name) {
   const e = (await api("/api/engines")).find(x => x.name === name);
@@ -490,6 +555,8 @@ $("#engine-form").onsubmit = async ev => {
     $("#engine-cancel").classList.add("hidden");
     renderEngines();
     loadEngineSelect();
+    $("#engine-check").textContent = "✓ saved";
+    setTimeout(() => { $("#engine-check").textContent = ""; }, 3000);
   } catch (e) { alert(e.message); }
 };
 async function deleteEngine(name) { if (confirm(`Delete engine ${name}?`)) { await api(`/api/engines/${encodeURIComponent(name)}`, { method: "DELETE" }); renderEngines(); } }

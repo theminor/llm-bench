@@ -22,6 +22,16 @@
 
 <section id="tab-sweeps" class="tab-page">
   <h2>Sweeps</h2>
+  <div id="sweep-live-output" class="hidden">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span id="live-output-title">Running…</span>
+        <button id="live-cancel-btn" class="small danger">Cancel</button>
+      </div>
+      <div id="live-output-progress" class="hint"></div>
+      <pre id="live-output-log"></pre>
+    </div>
+  </div>
   <p class="hint">Each sweep tries one combination ("variant") of your engine parameters: it launches
   the server, warms it up, runs timed requests, shuts down, and moves on. Variants run one at a time
   so only one server ever touches your GPU. Click <b>Variants</b> for per-combination status and
@@ -185,7 +195,9 @@
         <label>Ready path
           <input id="ef-ready" value="/health">
           <span class="hint">URL path llm-bench polls until it returns HTTP 200 before measuring
-          (llama.cpp and vLLM both have <code>/health</code>).</span></label>
+          (llama.cpp and vLLM both have <code>/health</code>).
+          If your engine prints its own "ready" line (e.g. Strata), try <code>/v1</code> or
+          <code>/v1/models</code> instead — some engines terminate after the first request.</span></label>
         <label>Measurement endpoint
           <input id="ef-measurement" value="/v1/completions">
           <span class="hint">Endpoint llm-bench POSTs timed requests to. Defaults to <code>/v1/completions</code>;

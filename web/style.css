@@ -67,3 +67,7 @@ label.checkbox .hint { display: inline; margin-top: 0; }
 .gloss-item b { color: var(--fg); }
 a.doc-link { color: var(--accent); text-decoration: none; font-size: 12px; }
 a.doc-link:hover { text-decoration: underline; }
+/* Live output during sweep */
+#live-output-log { margin: 0; padding: 12px 14px; background: #0b0e11; border: 1px solid var(--line); border-radius: 6px;
+  font-family: ui-monospace, monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; color: #b9c2cf; }
+#live-cancel-btn { margin-left: auto; }

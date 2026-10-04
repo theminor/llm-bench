@@ -112,6 +112,24 @@ def builtin_presets() -> list[dict[str, Any]]:
             "docs": "https://huggingface.co/docs/text-generation-inference/conceptual/openai",
             "note": "HF Text Generation Inference; OpenAI-compatible on /v1/completions.",
         },
+        {
+            "name": "Strata",
+            "executable": "python3",
+            "args": ["-m strata.serve", "--engine", "strata", "--host", "127.0.0.1",
+                     "--port", "{port}", "--config", "{model}"],
+            "ready_path": "/v1",
+            "ready_timeout_s": 600.0,
+            "model_required": True,
+            "timing": "none",
+            "headers": {},
+            "env": {},
+            "docs": "",
+            "note": "Strata inference engine. Default ready_path is /v1 (not /health) because "
+                    "Strata prints its own ready line to stdout and may stop after the first HTTP "
+                    "request. If the engine stops immediately, try setting ready_path to /v1/models "
+                    "or a non-existent path to skip readiness checking entirely.",
+            "measurement_endpoint": "/v1/chat/completions",
+        },
     ]
 
 
