@@ -49,13 +49,15 @@ async function renderSweeps() {
   if (!sweeps.length) { el.innerHTML = `<div class="card">No sweeps yet. <button onclick="$('[data-tab=new]').click()">Create one</button></div>`; return; }
   el.innerHTML = sweeps.map(s => {
     const p = s.status === "running" ? progressCard(s) : "";
+    const engines = (s.spec.engines && s.spec.engines.length ? s.spec.engines : (s.spec.engine ? [s.spec.engine] : []));
+    const engineStr = engines.length ? engines.join(", ") : "(none)";
     const models = (s.spec.models && s.spec.models.length ? s.spec.models : (s.spec.model ? [s.spec.model] : []));
     const modelStr = models.length ? models.map(m => m.split("/").pop()).join(", ") : "(none)";
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <b>#${s.id} ${esc(s.name)}</b> <span class="badge ${esc(s.status)}">${esc(s.status)}</span>
       </div>
-      <div class="hint">${esc(s.spec.engine)} · model ${esc(modelStr)} ·
+      <div class="hint">${esc(engineStr)} · model ${esc(modelStr)} ·
         ${s.spec.workloads.length} workload(s) · ${s.spec.repetitions} reps · ${esc(s.created_at)}</div>
       ${p}
       <div class="actions">
@@ -291,7 +293,15 @@ $("#live-cancel-btn").onclick = async () => {
   } catch (e) { alert(e.message); }
 };
 async function loadEngineSelect() {
-  // Not used anymore - engines are now a table, not a select
+  // Engines are now a table, but we still need to populate the datalist
+  // for autocomplete on the engine input fields.
+  try {
+    availableEngines = await api("/api/engines");
+    const dl = $("#engine-list");
+    if (dl) {
+      dl.innerHTML = availableEngines.map(e => `<option value="${esc(e.name)}">`).join("");
+    }
+  } catch {}
 }
 
 /* ---------- results ---------- */
@@ -399,10 +409,10 @@ async function renderResults() {
     </div>
     <div class="card" style="overflow-x:auto">
       <table id="results-table"><thead><tr>
-        ${["Sweep", "Variant", "Test", "n", ...METRICS.map(([, h]) => h)].map(h => `<th>${h}</th>`).join("")}
+        ${["Sweep", "Engine", "Variant", "Test", "n", ...METRICS.map(([, h]) => h)].map(h => `<th>${h}</th>`).join("")}
       </tr></thead><tbody>
       ${rows.map(r => `<tr>
-        <td>${r.sweep_id}</td><td>${esc(r.label)}</td><td>${esc(r.workload)}</td><td>${r.n}</td>
+        <td>${r.sweep_id}</td><td>${esc(r.engine || "")}</td><td>${esc(r.label)}</td><td>${esc(r.workload)}</td><td>${r.n}</td>
         ${METRICS.map(([k]) => {
           const m = r[`${k}_mean`], sd = r[`${k}_std`];
           return `<td${heat(k, m)}>${m == null ? "" : fmt(m, 2) + (sd ? ` <span class="hint">±${fmt(sd, 2)}</span>` : "")}</td>`;
@@ -587,10 +597,11 @@ async function renderLogs() {
   if (!rows.length) { el.innerHTML = `<div class="card">No logs yet — run a sweep first.</div>`; return; }
   const isLive = r => r.status === "starting" || r.status === "measuring";
   el.innerHTML = `<table><thead><tr>
-      <th>Sweep</th><th>Variant</th><th>Status</th><th>Started</th><th>Size</th><th></th>
+      <th>Sweep</th><th>Engine</th><th>Variant</th><th>Status</th><th>Started</th><th>Size</th><th></th>
     </tr></thead><tbody>` +
     rows.map(r => `<tr>
       <td>${r.sweep_id}: ${esc(r.sweep_name)}</td>
+      <td>${esc(r.engine || "")}</td>
       <td>${esc(r.label)}</td>
       <td><span class="badge ${esc(r.status)}">${esc(r.status)}</span></td>
       <td class="hint">${esc(r.started_at || "")}</td>
@@ -625,7 +636,7 @@ async function renderSweepsWithVariants() { await renderSweeps(); }
 async function sweepDetail(id) {
   const s = await api(`/api/sweeps/${id}`);
   const rows = (s.variants || []).map(v => `<tr>
-    <td>${v.idx + 1}</td><td>${esc(v.label)}</td>
+    <td>${v.idx + 1}</td><td>${esc(v.engine)}</td><td>${esc(v.label)}</td>
     <td><span class="badge ${esc(v.status)}">${esc(v.status)}</span></td>
     <td class="hint">${esc(v.error || "")}</td>
     <td>${v.n_samples}</td>
@@ -634,11 +645,12 @@ async function sweepDetail(id) {
   $("#sweep-detail").innerHTML = `<div class="card" style="overflow-x:auto">
     <h3>Sweep ${id}: ${esc(s.name)} <span class="badge ${esc(s.status)}">${esc(s.status)}</span></h3>
     ${progressCard(s)}
-    <table><thead><tr><th>#</th><th>Variant</th><th>Status</th><th>Error</th><th>Samples</th><th></th></tr></thead>
+    <table><thead><tr><th>#</th><th>Engine</th><th>Variant</th><th>Status</th><th>Error</th><th>Samples</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
 /* init */
+addEngine();
 addModel();
 addWl("pg", 512, 128);
 addDim();

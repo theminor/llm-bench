@@ -23,6 +23,7 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
     data_dir = Path(data_dir or BASE_DIR / "data")
     (data_dir / "logs").mkdir(parents=True, exist_ok=True)
     db = Database(data_dir / "llm_bench.sqlite3")
+    db.migrate()  # backfill schema changes for existing databases
     runner = Runner(db, data_dir)
 
     app = FastAPI(title="llm-bench", version="0.1.0")
