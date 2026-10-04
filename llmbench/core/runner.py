@@ -130,7 +130,11 @@ class Runner:
         )
         try:
             await server.start()
+            server._log.write(f"[DIAG] server.start() returned, proc.returncode={server.proc.returncode}\n")
+            server._log.flush()
         except Exception as e:
+            server._log.write(f"[DIAG] server.start() raised {type(e).__name__}: {e}\n")
+            server._log.flush()
             err = f"{type(e).__name__}: {e}"
             self.db.update_variant(variant_id, status="startup_error", error=err,
                                    finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
