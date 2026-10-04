@@ -195,9 +195,8 @@
         <label>Ready path
           <input id="ef-ready" value="/health">
           <span class="hint">URL path llm-bench polls until it returns HTTP 200 before measuring
-          (llama.cpp and vLLM both have <code>/health</code>).
-          If your engine prints its own "ready" line (e.g. Strata), try <code>/v1</code> or
-          <code>/v1/models</code> instead — some engines terminate after the first request.</span></label>
+          (llama.cpp and vLLM both have <code>/health</code>). Must be a path that returns HTTP 200
+          for a simple GET — <code>/v1</code> is an API catch-all and will not.</span></label>
         <label>Measurement endpoint
           <input id="ef-measurement" value="/v1/completions">
           <span class="hint">Endpoint llm-bench POSTs timed requests to. Defaults to <code>/v1/completions</code>;

@@ -117,17 +117,16 @@ def builtin_presets() -> list[dict[str, Any]]:
             "executable": "python3",
             "args": ["-m strata.serve", "--engine", "strata", "--host", "127.0.0.1",
                      "--port", "{port}", "--config", "{model}"],
-            "ready_path": "/v1",
+            "ready_path": "/health",
             "ready_timeout_s": 600.0,
             "model_required": True,
             "timing": "none",
             "headers": {},
             "env": {},
-            "docs": "",
-            "note": "Strata inference engine. Default ready_path is /v1 (not /health) because "
-                    "Strata prints its own ready line to stdout and may stop after the first HTTP "
-                    "request. If the engine stops immediately, try setting ready_path to /v1/models "
-                    "or a non-existent path to skip readiness checking entirely.",
+            "docs": "https://github.com/jmnargi/Strata-V100",
+            "note": "Strata inference engine. Use /health as the ready path (Strata does serve it and returns HTTP 200 "
+                    "once the model is loaded). /v1 is an API catch-all route — it does not return 200 for a bare GET, "
+                    "so llm-bench will poll until the timeout and then kill the process.",
             "measurement_endpoint": "/v1/chat/completions",
         },
     ]
