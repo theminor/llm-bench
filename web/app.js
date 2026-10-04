@@ -177,8 +177,8 @@ $("#engines-add").onclick = () => addEngine();
 function formSpec() {
   // NOTE: never read fields via form.<name> — "name" collides with the
   // HTMLFormElement.name built-in. Always use explicit ids.
-  const engines = $("#engines-table tbody tr").map(tr => $(".engine-name", tr).value.trim()).filter(Boolean);
-  const models = $("#models-table tbody tr").map(tr => $(".model-path", tr).value.trim()).filter(Boolean);
+  const engines = $$("#engines-table tbody tr").map(tr => $(".engine-name", tr).value.trim()).filter(Boolean);
+  const models = $$("#models-table tbody tr").map(tr => $(".model-path", tr).value.trim()).filter(Boolean);
   return {
     name: $("#sf-name").value.trim(),
     engine: engines[0] || "",
@@ -191,12 +191,12 @@ function formSpec() {
     warmup: $("#sf-warmup").checked,
     cooldown_s: +$("#sf-cooldown").value || 0,
     startup_timeout_s: +$("#sf-startup").value || 300,
-    workloads: $("#wl-table tbody tr").map(tr => ({
+    workloads: $$("#wl-table tbody tr").map(tr => ({
       kind: $(".wl-kind", tr).value,
       n_prompt: +$(".wl-pp", tr).value || 0,
       n_gen: +$(".wl-tg", tr).value || 0,
     })),
-    dimensions: $("#dim-table tbody tr").map(tr => ({
+    dimensions: $$("#dim-table tbody tr").map(tr => ({
       name: $(".dim-name", tr).value.trim(),
       type: $(".dim-type", tr).value,
       args: $(".dim-args", tr).value,
