@@ -47,9 +47,14 @@
       <label>Name
         <input id="sf-name" value="untitled sweep" required>
         <span class="hint">Any label you like — shown in the sweep list and in exports.</span></label>
-      <label>Engine
-        <select id="sf-engine" required></select>
-        <span class="hint">Which configured engine (see the Engines tab) to launch for every variant.</span></label>
+      <label class="wide">Engines (one per line — add several to compare their speeds)
+        <span class="hint" style="display:block">Each engine is a configured server type (llama.cpp, vLLM, Strata, etc.). With multiple engines, llm-bench runs the same models under each engine so you can compare performance side by side. Add at least one.</span>
+      </label>
+      <table id="engines-table" class="rows">
+        <thead><tr><th>Engine name</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button type="button" id="engines-add" class="small">+ engine</button>
       <label class="wide">Models (one per line via the table — add several to compare their speeds)
         <span class="hint" style="display:block">Each model is substituted into the engine's <code>{model}</code>
         argument and run under identical settings, so you can compare one model against another.

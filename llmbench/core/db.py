@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS variants (
     idx INTEGER NOT NULL,
     label TEXT NOT NULL,
     labels TEXT NOT NULL DEFAULT '{}',
+    engine TEXT NOT NULL DEFAULT '',
     args TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     error TEXT NOT NULL DEFAULT '',
@@ -70,6 +71,24 @@ class Database:
     def _exec(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._conn:
             return self._conn.execute(sql, params)
+
+    def _execscript(self, sql: str) -> None:
+        with self._lock, self._conn:
+            self._conn.executescript(sql)
+
+    def migrate(self) -> None:
+        """Backfill schema for existing databases."""
+        with self._lock, self._conn:
+            cols = {
+                row["name"]
+                for row in self._conn.execute(
+                    "PRAGMA table_info(variants)"
+                ).fetchall()
+            }
+        if "engine" not in cols:
+            self._execscript(
+                "ALTER TABLE variants ADD COLUMN engine TEXT NOT NULL DEFAULT '';"
+            )
 
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
         with self._lock:
@@ -144,13 +163,14 @@ class Database:
         with self._lock, self._conn:
             for i, v in enumerate(variants):
                 cur = self._conn.execute(
-                    "INSERT INTO variants(sweep_id, idx, label, labels, args, command) "
-                    "VALUES(?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO variants(sweep_id, idx, label, labels, engine, args, command) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?)",
                     (
                         sweep_id,
                         i,
                         v["label"],
                         json.dumps(v.get("labels", {})),
+                        v.get("engine", ""),
                         " ".join(v.get("args", [])),
                         " ".join(v.get("command_preview", v.get("args", []))),
                     ),

@@ -99,13 +99,19 @@ def create_app(data_dir: str | Path | None = None) -> tuple[FastAPI, Database, R
             parsed = SweepSpec.from_dict(spec)
         except (KeyError, ValueError, TypeError) as e:
             raise HTTPException(400, f"invalid sweep spec: {e}")
-        if db.get_engine(parsed.engine) is None:
-            raise HTTPException(400, f"unknown engine {parsed.engine!r}")
+        if not parsed.engines:
+            raise HTTPException(400, "at least one engine required")
+        for eng_name in parsed.engines:
+            if db.get_engine(eng_name) is None:
+                raise HTTPException(400, f"unknown engine {eng_name!r}")
         if not parsed.workloads:
             raise HTTPException(400, "sweep needs at least one workload")
-        eng = db.get_engine(parsed.engine)
-        if eng.get("model_required", True) and not (parsed.models or [parsed.model]):
-            raise HTTPException(400, f"engine {parsed.engine!r} requires at least one model")
+        if parsed.engines and any(
+            db.get_engine(e) and db.get_engine(e).get("model_required", True)
+            for e in parsed.engines
+        ):
+            if not (parsed.models or [parsed.model]):
+                raise HTTPException(400, "one or more engines require at least one model")
         sid = db.create_sweep(parsed.name, spec, snapshot())
         return {"id": sid}
 

@@ -44,6 +44,15 @@ class Runner:
         p.update(kw)
         p["updated_at"] = time.time()
 
+    def _load_profile(self, engine_name: str) -> EngineProfile:
+        eng_dict = self.db.get_engine(engine_name)
+        if eng_dict is None:
+            raise RuntimeError(f"engine {engine_name!r} not found in database")
+        return EngineProfile.from_dict(eng_dict)
+
+    def _load_profiles(self, engine_names: list[str]) -> list[EngineProfile]:
+        return [self._load_profile(n) for n in engine_names]
+
     async def run_sweep(self, sweep_id: int) -> None:
         async with self.lock:  # one sweep at a time: GPU exclusivity
             sweep = self.db.get_sweep(sweep_id)
@@ -51,29 +60,32 @@ class Runner:
                 return
             self._cancel.discard(sweep_id)
             spec = SweepSpec.from_dict(sweep["spec"])
-            eng_dict = self.db.get_engine(spec.engine)
-            if eng_dict is None:
-                self.db.set_sweep_status(sweep_id, "failed")
-                self._update(sweep_id, state="failed", message=f"engine {spec.engine!r} not found")
-                return
-            profile = EngineProfile.from_dict(eng_dict)
-            if profile.model_required and not (spec.models or [spec.model]):
-                self.db.set_sweep_status(sweep_id, "failed")
-                self._update(sweep_id, state="failed", message="this engine requires a model path")
-                return
+            # Validate all engines exist upfront
+            for eng_name in spec.engines:
+                eng_dict = self.db.get_engine(eng_name)
+                if eng_dict is None:
+                    self.db.set_sweep_status(sweep_id, "failed")
+                    self._update(sweep_id, state="failed", message=f"engine {eng_name!r} not found")
+                    return
+            if spec.engines and any(profile.model_required for profile in self._load_profiles(spec.engines)):
+                if not (spec.models or [spec.model]):
+                    self.db.set_sweep_status(sweep_id, "failed")
+                    self._update(sweep_id, state="failed", message="this engine requires a model path")
+                    return
 
             variants = plan_variants(spec)
-            previews = [
-                {
+            previews = []
+            for v in variants:
+                vprofile = self._load_profile(v.engine or spec.engine)
+                previews.append({
                     "label": v.label,
                     "labels": v.labels,
                     "args": v.args,
+                    "engine": v.engine or spec.engine,
                     "command_preview": " ".join(
-                        [profile.executable] + profile.render_args(v.model, spec.port or 0) + v.args
+                        [vprofile.executable] + vprofile.render_args(v.model, spec.port or 0) + v.args
                     ),
-                }
-                for v in variants
-            ]
+                })
             variant_ids = self.db.add_variants(sweep_id, previews)
             total = len(variants)
             self.db.set_sweep_status(sweep_id, "running")
@@ -91,7 +103,7 @@ class Runner:
                     workload="",
                     rep=0,
                 )
-                ok = await self._run_variant(sweep_id, spec, profile, variant, variant_id)
+                ok = await self._run_variant(sweep_id, spec, variant, variant_id)
                 if not ok:
                     failures += 1
                 if i < total - 1 and sweep_id not in self._cancel:
@@ -111,10 +123,14 @@ class Runner:
         self,
         sweep_id: int,
         spec: SweepSpec,
-        profile: EngineProfile,
         variant,
         variant_id: int,
     ) -> bool:
+        engine_name = variant.engine or ""
+        if not engine_name:
+            # Legacy: fall back to spec.engine
+            engine_name = spec.engine
+        profile = self._load_profile(engine_name)
         port = spec.port or _free_port()
         log_path = str(self.data_dir / "logs" / f"sweep{sweep_id}_variant{variant_id}.log")
         model = variant.model or "default"

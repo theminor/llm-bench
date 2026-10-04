@@ -159,7 +159,8 @@ class Workload:
 @dataclass
 class SweepSpec:
     name: str
-    engine: str
+    engine: str = ""                # legacy single engine (back-compat)
+    engines: list[str] = field(default_factory=list)  # swept: cross-product
     model: str = ""                 # single model (back-compat)
     models: list[str] = field(default_factory=list)  # swept: cross-product
     base_args: str = ""             # applied to every variant (shlex string)
@@ -175,6 +176,11 @@ class SweepSpec:
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "SweepSpec":
+        engines = [str(e) for e in d.get("engines", []) if str(e).strip()]
+        single_engine = str(d.get("engine", "") or "")
+        # `engine` is the legacy single field; if `engines` absent, fall back to it.
+        if not engines and single_engine:
+            engines = [single_engine]
         models = [str(m) for m in d.get("models", []) if str(m).strip()]
         single = str(d.get("model", "") or "")
         # `model` is the legacy single field; if `models` absent, fall back to it.
@@ -193,7 +199,8 @@ class SweepSpec:
             ))
         return SweepSpec(
             name=str(d.get("name") or "sweep"),
-            engine=str(d["engine"]),
+            engine=single_engine,
+            engines=engines,
             model=single or (models[0] if models else ""),
             models=models,
             base_args=str(d.get("base_args", "")),
@@ -214,6 +221,7 @@ class Variant:
     labels: dict[str, str]
     args: list[str]
     label: str
+    engine: str = ""
     model: str = ""
     env: dict[str, str] = field(default_factory=dict)  # per-variant env overrides
 
@@ -232,38 +240,48 @@ def _model_label(model: str) -> str:
 
 
 def plan_variants(spec: SweepSpec) -> list[Variant]:
-    """Cross-product of models × dimensions (llama-bench style), deduplicated.
+    """Cross-product of engines × models × dimensions, deduplicated.
 
-    With no models and no dimensions this yields a single baseline variant.
+    ``engines`` on the spec is the new swept list; ``engine`` is legacy
+    single-engine (back-compat).  With no engines and no models, yields a
+    single baseline variant.
     """
     expanded = [dim.expand() for dim in spec.dimensions]
     base = shlex.split(spec.base_args) if spec.base_args.strip() else []
+
+    engines = spec.engines or [spec.engine] if spec.engine else [""]
     models = spec.models or ([spec.model] if spec.model else [""])
     dim_combos = [()] if not expanded else list(itertools.product(*expanded))
 
     seen: set[str] = set()
     variants: list[Variant] = []
-    # Only surface the model in the display label when comparing several
-    # models; with a single model it would be redundant noise.
+    multi_engine = len(set(engines)) > 1
     multi_model = len(set(models)) > 1
-    for model in models:
-        for combo in dim_combos:
-            labels: dict[str, str] = {}
-            if model:
-                labels["model"] = _model_label(model)
-            for c in combo:
-                nm, val = c[0].split("=", 1)
-                labels[nm] = val
-            args = list(base)
-            env: dict[str, str] = {}
-            for c in combo:
-                args.extend(c[1])
-                env.update(c[2])
-            label_parts = ([_model_label(model)] if model and multi_model else []) + [c[0] for c in combo]
-            label = " ".join(label_parts) if label_parts else "(baseline)"
-            v = Variant(labels=labels, args=args, label=label, model=model, env=env)
-            if v.key in seen:
-                continue
-            seen.add(v.key)
-            variants.append(v)
+    for eng in engines:
+        for model in models:
+            for combo in dim_combos:
+                labels: dict[str, str] = {}
+                if eng:
+                    labels["engine"] = eng
+                if model:
+                    labels["model"] = _model_label(model)
+                for c in combo:
+                    nm, val = c[0].split("=", 1)
+                    labels[nm] = val
+                args = list(base)
+                env: dict[str, str] = {}
+                for c in combo:
+                    args.extend(c[1])
+                    env.update(c[2])
+                label_parts = (
+                    ([_model_label(eng)] if eng and multi_engine else []) +
+                    ([_model_label(model)] if model and multi_model else []) +
+                    [c[0] for c in combo]
+                )
+                label = " ".join(label_parts) if label_parts else "(baseline)"
+                v = Variant(labels=labels, args=args, label=label, engine=eng, model=model, env=env)
+                if v.key in seen:
+                    continue
+                seen.add(v.key)
+                variants.append(v)
     return variants

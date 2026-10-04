@@ -79,8 +79,10 @@ async function cloneSweep(id) {
     const s = await api(`/api/sweeps/${id}`);
     const sp = s.spec;
     $("#sf-name").value = (sp.name || "sweep") + " (copy)";
-    await loadEngineSelect();
-    $("#sf-engine").value = sp.engine;
+    // engines
+    const engines = (sp.engines && sp.engines.length ? sp.engines : (sp.engine ? [sp.engine] : []));
+    $("#engines-table tbody").innerHTML = "";
+    (engines.length ? engines : [""]).forEach(e => addEngine(e));
     // models
     $("#models-table tbody").innerHTML = "";
     const models = (sp.models && sp.models.length ? sp.models : (sp.model ? [sp.model] : []));
@@ -123,6 +125,18 @@ function addWl(kind = "pg", pp = 512, tg = 128) {
   tr.querySelector(".wl-kind").value = kind;
   $("#wl-table tbody").appendChild(tr);
 }
+function addEngine(name = "") {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td><input class="engine-name" value="${esc(name)}" placeholder="llama.cpp" list="engine-list"></td>
+    <td><button type="button" class="small danger" onclick="this.closest('tr').remove()">×</button></td>`;
+  if (!$("#engine-list")) {
+    const dl = document.createElement("datalist");
+    dl.id = "engine-list";
+    dl.innerHTML = availableEngines.map(e => `<option value="${esc(e.name)}">`).join("");
+    document.body.appendChild(dl);
+  }
+  $("#engines-table tbody").appendChild(tr);
+}
 function addModel(path = "") {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td><input class="model-path" value="${esc(path)}" placeholder="/models/Qwen2.5-7B-Q4_K_M.gguf"></td>
@@ -156,14 +170,17 @@ function parseEnvLines(text) {
 $("#wl-add").onclick = () => addWl();
 $("#dim-add").onclick = () => addDim();
 $("#models-add").onclick = () => addModel();
+$("#engines-add").onclick = () => addEngine();
 
 function formSpec() {
   // NOTE: never read fields via form.<name> — "name" collides with the
   // HTMLFormElement.name built-in. Always use explicit ids.
-  const models = $$("#models-table tbody tr").map(tr => $(".model-path", tr).value.trim()).filter(Boolean);
+  const engines = $("#engines-table tbody tr").map(tr => $(".engine-name", tr).value.trim()).filter(Boolean);
+  const models = $("#models-table tbody tr").map(tr => $(".model-path", tr).value.trim()).filter(Boolean);
   return {
     name: $("#sf-name").value.trim(),
-    engine: $("#sf-engine").value,
+    engine: engines[0] || "",
+    engines: engines,
     model: models[0] || "",
     models: models,
     base_args: $("#sf-base").value.trim(),
@@ -172,12 +189,12 @@ function formSpec() {
     warmup: $("#sf-warmup").checked,
     cooldown_s: +$("#sf-cooldown").value || 0,
     startup_timeout_s: +$("#sf-startup").value || 300,
-    workloads: $$("#wl-table tbody tr").map(tr => ({
+    workloads: $("#wl-table tbody tr").map(tr => ({
       kind: $(".wl-kind", tr).value,
       n_prompt: +$(".wl-pp", tr).value || 0,
       n_gen: +$(".wl-tg", tr).value || 0,
     })),
-    dimensions: $$("#dim-table tbody tr").map(tr => ({
+    dimensions: $("#dim-table tbody tr").map(tr => ({
       name: $(".dim-name", tr).value.trim(),
       type: $(".dim-type", tr).value,
       args: $(".dim-args", tr).value,
@@ -274,12 +291,7 @@ $("#live-cancel-btn").onclick = async () => {
   } catch (e) { alert(e.message); }
 };
 async function loadEngineSelect() {
-  const engines = await api("/api/engines");
-  const cur = $("#sf-engine").value;
-  $("#sf-engine").innerHTML = engines.map(e => `<option value="${esc(e.name)}">${esc(e.name)}</option>`).join("");
-  // Preserve the current selection across reloads (e.g. when cloning a sweep
-  // and the tab switch re-populates the list).
-  if (cur && [...$("#sf-engine").options].some(o => o.value === cur)) $("#sf-engine").value = cur;
+  // Not used anymore - engines are now a table, not a select
 }
 
 /* ---------- results ---------- */
