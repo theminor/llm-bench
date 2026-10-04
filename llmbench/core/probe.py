@@ -123,8 +123,17 @@ async def measure_request(
                 if chunk.get("usage"):
                     usage = chunk["usage"]
                 for choice in chunk.get("choices", []):
+                    # Legacy completions format (one token per chunk in "text")
                     text = choice.get("text", "")
+                    # Chat completions format (delta.content per token)
+                    delta = choice.get("delta") or {}
+                    delta_text = delta.get("content", "")
                     if text:
+                        now = time.perf_counter()
+                        if t_first is None:
+                            t_first = now
+                        token_times.append(now)
+                    elif delta_text:
                         now = time.perf_counter()
                         if t_first is None:
                             t_first = now
