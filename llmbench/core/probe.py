@@ -120,16 +120,6 @@ async def measure_request(
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                # DEBUG: log first chunk structure to understand format
-                if not sample.raw.get("_debug_dumped"):
-                    sample.raw["_debug_dumped"] = True
-                    sample.raw["_debug_sample"] = {
-                        "usage": chunk.get("usage"),
-                        "choices_count": len(chunk.get("choices", [])),
-                        "choices": chunk.get("choices", [])[:1],  # first choice only
-                    }
-                    import sys
-                    print(f"[DIAG] first SSE chunk: {json.dumps(sample.raw['_debug_sample'], default=str)[:500]}", file=sys.stderr, flush=True)
                 if chunk.get("usage"):
                     usage = chunk["usage"]
                 for choice in chunk.get("choices", []):
