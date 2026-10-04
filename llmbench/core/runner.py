@@ -166,7 +166,7 @@ class Runner:
                     warm = await measure_request(
                         client, server.base_url, model,
                         prompt + " [warmup]", wl.max_tokens, wl.label, -1, headers,
-                        profile.measurement_endpoint,
+                        profile.measurement_endpoint, profile.request_format,
                     )
                     server._log.write(f"[DIAG] warmup result: ok={warm.ok}, error={warm.error}\n")
                     server._log.flush()
@@ -183,7 +183,7 @@ class Runner:
                     s = await measure_request(
                         client, server.base_url, model,
                         f"{prompt} [rep{rep}]", wl.max_tokens, wl.label, rep, headers,
-                        profile.measurement_endpoint,
+                        profile.measurement_endpoint, profile.request_format,
                     )
                     server._log.write(f"[DIAG] rep {rep} result: ok={s.ok}, error={s.error}\n")
                     server._log.flush()

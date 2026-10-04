@@ -206,6 +206,13 @@
           <input id="ef-measurement" value="/v1/completions">
           <span class="hint">Endpoint llm-bench POSTs timed requests to. Defaults to <code>/v1/completions</code>;
           change to <code>/v1/chat/completions</code> for engines like Strata that don't support the legacy completions endpoint.</span></label>
+        <label>Request format
+          <select id="ef-request-format">
+            <option value="prompt">prompt (llama.cpp legacy)</option>
+            <option value="messages">messages (OpenAI chat)</option>
+          </select>
+          <span class="hint">The request body format. Use <code>messages</code> for OpenAI-compatible chat APIs
+          (Strata, Ollama, vLLM chat). Use <code>prompt</code> for llama.cpp's legacy completions API.</span></label>
         <label>Ready timeout s
           <input id="ef-timeout" type="number" value="300">
           <span class="hint">Max wait for the model to load before the variant is marked failed.</span></label>

@@ -74,18 +74,29 @@ async def measure_request(
     rep: int,
     headers: dict[str, str] | None = None,
     measurement_endpoint: str = "/v1/completions",
+    request_format: str = "prompt",
 ) -> Sample:
     sample = Sample(workload=workload, rep=rep)
-    payload = {
-        "model": model or "default",
-        "prompt": prompt,
-        "max_tokens": max_tokens,
-        "min_tokens": max_tokens,
-        "temperature": 0,
-        "ignore_eos": True,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
+    if request_format == "messages":
+        payload: dict = {
+            "model": model or "default",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": 0,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+    else:
+        payload = {
+            "model": model or "default",
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "min_tokens": max_tokens,
+            "temperature": 0,
+            "ignore_eos": True,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
     t0 = time.perf_counter()
     t_first: float | None = None
     token_times: list[float] = []

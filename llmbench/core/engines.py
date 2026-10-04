@@ -147,6 +147,7 @@ class EngineProfile:
     note: str = ""
     measurement_endpoint: str = "/v1/completions"  # endpoint for timed measurement requests
     ready_pattern: str | None = None  # if set, match stdout lines instead of HTTP GET
+    request_format: str = "prompt"  # "prompt" (legacy llama.cpp) or "messages" (OpenAI chat)
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "EngineProfile":
@@ -164,6 +165,7 @@ class EngineProfile:
             note=str(d.get("note", "")),
             measurement_endpoint=str(d.get("measurement_endpoint", "/v1/completions")),
             ready_pattern=d.get("ready_pattern"),
+            request_format=str(d.get("request_format", "prompt")),
         )
 
     def render_args(self, model: str, port: int) -> list[str]:
