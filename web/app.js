@@ -494,6 +494,7 @@ function engineFormFill(e = {}) {
   $("#ef-executable").value = e.executable || "";
   $("#ef-args").value = (e.args || ["--model", "{model}", "--host", "127.0.0.1", "--port", "{port}"]).join("\n");
   $("#ef-ready").value = e.ready_path || "/health";
+  $("#ef-ready-pattern").value = e.ready_pattern || "";
   $("#ef-timeout").value = e.ready_timeout_s != null ? e.ready_timeout_s : 300;
   $("#ef-timing").value = e.timing || "llamacpp";
   $("#ef-modelreq").checked = e.model_required !== false;
@@ -528,6 +529,7 @@ $("#engine-form").onsubmit = async ev => {
       executable: $("#ef-executable").value.trim(),
       args: $("#ef-args").value.split("\n").map(s => s.trimEnd()).filter(s => s.trim() !== ""),
       ready_path: $("#ef-ready").value.trim() || "/health",
+      ready_pattern: $("#ef-ready-pattern").value.trim() || null,
       ready_timeout_s: +$("#ef-timeout").value || 300,
       timing: $("#ef-timing").value,
       model_required: $("#ef-modelreq").checked,

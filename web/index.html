@@ -197,6 +197,11 @@
           <span class="hint">URL path llm-bench polls until it returns HTTP 200 before measuring
           (llama.cpp and vLLM both have <code>/health</code>). Must be a path that returns HTTP 200
           for a simple GET — <code>/v1</code> is an API catch-all and will not.</span></label>
+        <label>Ready pattern
+          <input id="ef-ready-pattern" placeholder="ready:">
+          <span class="hint">If set, llm-bench scans stdout for this substring instead of HTTP polling.
+          Useful when the server's HTTP endpoint doesn't return 200 for a bare GET (e.g. Strata).
+          The server prints <code>ready: http://…</code> once fully accepting connections.</span></label>
         <label>Measurement endpoint
           <input id="ef-measurement" value="/v1/completions">
           <span class="hint">Endpoint llm-bench POSTs timed requests to. Defaults to <code>/v1/completions</code>;
