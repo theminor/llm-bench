@@ -143,23 +143,33 @@ class Runner:
             await asyncio.sleep(spec.cooldown_s)
             return False
 
+        server._log.write(f"[DIAG] about to update variant status to measuring\n")
+        server._log.flush()
         self.db.update_variant(variant_id, status="measuring")
         any_ok = False
         sample_errors: list[str] = []
         headers = profile.render_headers(port)
+        server._log.write(f"[DIAG] about to enter measurement loop, workloads={len(spec.workloads)}, repetitions={spec.repetitions}\n")
+        server._log.flush()
         async with httpx.AsyncClient(base_url=server.base_url) as client:
             for wl in spec.workloads:
+                server._log.write(f"[DIAG] starting workload {wl.label}\n")
+                server._log.flush()
                 prompt = build_prompt(wl.n_prompt or 8, seed=hash((variant.key, wl.label)) & 0x7FFFFFFF)
                 if sweep_id in self._cancel:
                     break
                 samples = []
                 if spec.warmup:
                     self._update(sweep_id, workload=wl.label, rep=-1, message="warmup")
+                    server._log.write(f"[DIAG] sending warmup request\n")
+                    server._log.flush()
                     warm = await measure_request(
                         client, server.base_url, model,
                         prompt + " [warmup]", wl.max_tokens, wl.label, -1, headers,
                         profile.measurement_endpoint,
                     )
+                    server._log.write(f"[DIAG] warmup result: ok={warm.ok}, error={warm.error}\n")
+                    server._log.flush()
                     self.db.add_sample(variant_id, sweep_id, warm.__dict__ | {"workload": wl.label, "rep": -1}, is_warmup=True)
                     samples.append(warm)
                 mark = len(server.lines)
@@ -167,12 +177,16 @@ class Runner:
                     if sweep_id in self._cancel:
                         break
                     self._update(sweep_id, workload=wl.label, rep=rep)
+                    server._log.write(f"[DIAG] sending rep {rep} request\n")
+                    server._log.flush()
                     # unique suffix per rep defeats prefix caching
                     s = await measure_request(
                         client, server.base_url, model,
                         f"{prompt} [rep{rep}]", wl.max_tokens, wl.label, rep, headers,
                         profile.measurement_endpoint,
                     )
+                    server._log.write(f"[DIAG] rep {rep} result: ok={s.ok}, error={s.error}\n")
+                    server._log.flush()
                     if profile.timing == "llamacpp" and s.ok:
                         want_tg = wl.max_tokens > 1  # eval timing is meaningless for 1-token pp runs
                         pp, tg, mark = await _collect_log_timings(server, mark, want_tg=want_tg)
@@ -187,6 +201,8 @@ class Runner:
                         sample_errors.append(f"[{wl.label} rep{rep}] {s.error}")
                 if any(s.ok for s in samples):
                     any_ok = True
+        server._log.write(f"[DIAG] measurement loop done, any_ok={any_ok}, calling server.stop()\n")
+        server._log.flush()
         await server.stop()
         status = "done" if any_ok else "error"
         self.db.update_variant(
