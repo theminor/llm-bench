@@ -266,36 +266,54 @@ class ServerProcess:
         deadline = time.monotonic() + self.ready_timeout_s
         # If a ready_pattern is configured, scan stdout instead of HTTP GET
         if self.profile.ready_pattern:
+            self._log.write(f"[DIAG] ready_pattern={self.profile.ready_pattern!r}, timeout={self.ready_timeout_s:.0f}s\n")
+            self._log.flush()
             while time.monotonic() < deadline:
                 if self.proc and self.proc.returncode is not None:
+                    self._log.write(f"[DIAG] process exited early, code={self.proc.returncode}, lines_so_far={len(self.lines)}, last_line={self.lines[-1] if self.lines else '(none)'}\n")
+                    self._log.flush()
                     raise RuntimeError(
                         f"engine exited early (code {self.proc.returncode}); "
                         f"see {self.log_path}"
                     )
                 for line in self.lines:
                     if self.profile.ready_pattern in line:
+                        self._log.write(f"[DIAG] ready pattern matched on line {len(self.lines)}: {line!r}\n")
+                        self._log.flush()
                         return
                 await asyncio.sleep(0.5)
+            self._log.write(f"[DIAG] timeout: captured {len(self.lines)} lines, last={self.lines[-1] if self.lines else '(none)'}\n")
+            self._log.flush()
             raise TimeoutError(
                 f"engine did not print ready pattern {self.profile.ready_pattern!r} within "
                 f"{self.ready_timeout_s:.0f}s (captured {len(self.lines)} lines)"
             )
         # Default: HTTP polling
         url = self.base_url + self.profile.ready_path
+        self._log.write(f"[DIAG] HTTP polling {url}, timeout={self.ready_timeout_s:.0f}s\n")
+        self._log.flush()
         async with httpx.AsyncClient() as client:
             while time.monotonic() < deadline:
                 if self.proc and self.proc.returncode is not None:
+                    self._log.write(f"[DIAG] process exited early, code={self.proc.returncode}, lines_so_far={len(self.lines)}, last_line={self.lines[-1] if self.lines else '(none)'}\n")
+                    self._log.flush()
                     raise RuntimeError(
                         f"engine exited early (code {self.proc.returncode}); "
                         f"see {self.log_path}"
                     )
+                t0 = time.monotonic()
                 try:
                     r = await client.get(url, timeout=2.0)
+                    self._log.write(f"[DIAG] HTTP GET {url} -> {r.status_code} in {time.monotonic()-t0:.1f}s\n")
+                    self._log.flush()
                     if r.status_code == 200:
                         return
-                except httpx.HTTPError:
-                    pass
+                except httpx.HTTPError as e:
+                    self._log.write(f"[DIAG] HTTP GET {url} -> error: {e}\n")
+                    self._log.flush()
                 await asyncio.sleep(1.0)
+        self._log.write(f"[DIAG] HTTP timeout after polling {url}\n")
+        self._log.flush()
         raise TimeoutError(
             f"engine not ready at {url} within {self.ready_timeout_s:.0f}s"
         )
